@@ -1,0 +1,11 @@
+# Built release packages — upload these to the Chrome Web Store, don't commit them
+releases/*.zip
+releases/*.crx
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/

@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Otiyot+ Beta",
+  "short_name": "Otiyot+ β",
+  "version": "1.2.0",
+  "description": "BETA — Otiyot+ Hebrew reading aid. Colour-codes niqqud vowel marks, applies a dyslexia-friendly font, adds letter spacing, and includes a reading focus mode. Early access to upcoming features.",
+
+  "permissions": ["storage", "tabs", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Otiyot+ Beta Settings",
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "32":  "icons/icon32.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "32":  "icons/icon32.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "content_scripts": [
+    {
+      "js": ["content.js"],
+      "matches": ["<all_urls>"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["dyslexia-hebrew-extended.otf"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
