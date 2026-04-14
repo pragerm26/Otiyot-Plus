@@ -1,165 +1,143 @@
-// =============================================================================
-// Otiyot+ Popup Script
-// Handles all UI interactions in the extension popup.
-// Saves settings to chrome.storage.sync so content.js can read them.
-// =============================================================================
-
 document.addEventListener('DOMContentLoaded', () => {
 
-  // ---------------------------------------------------------------------------
-  // 1. NIKUD DEFINITIONS
-  // Must stay in sync with content.js ALL_NIKUD — same keys, same order.
-  // ---------------------------------------------------------------------------
   const NIKUD_LIST = [
-    { char: '\u05B0', key: 'nikud_05B0', label: 'Shva',   color: '#3877ff' },
-    { char: '\u05B4', key: 'nikud_05B4', label: 'Hiriq',  color: '#7debb0' },
-    { char: '\u05B5', key: 'nikud_05B5', label: 'Tsere',  color: '#fd29ba' },
-    { char: '\u05B6', key: 'nikud_05B6', label: 'Segol',  color: '#f81b1b' },
-    { char: '\u05B7', key: 'nikud_05B7', label: 'Patach', color: '#66fd7a' },
-    { char: '\u05B8', key: 'nikud_05B8', label: 'Kamatz', color: '#8d62fa' },
-    { char: '\u05B9', key: 'nikud_05B9', label: 'Holam',  color: '#6ee4ef' },
-    { char: '\u05BB', key: 'nikud_05BB', label: 'Kubutz', color: '#1cc00d' },
-    { char: '\u05BC', key: 'nikud_05BC', label: 'Dagesh', color: '#f2fe06' },
+    { char: '\u05B0', key: 'nikud_shva_na',   label: 'Shva Na',   color: '#cc0000' }, // deep red — voiced
+    { char: '\u05B0', key: 'nikud_shva_nach',  label: 'Shva Nach', color: '#ff88aa' }, // pink — silent
+    { char: '\u05B4', key: 'nikud_05B4', label: 'Hiriq',  color: '#ff9900' },
+    { char: '\u05B5', key: 'nikud_05B5', label: 'Tsere',  color: '#cccc00' },
+    { char: '\u05B6', key: 'nikud_05B6', label: 'Segol',  color: '#00cc00' },
+    { char: '\u05B7', key: 'nikud_05B7', label: 'Patach', color: '#6aa84f' },
+    { char: '\u05B8', key: 'nikud_05B8', label: 'Kamatz', color: '#6fa8dc' },
+    { char: '\u05B9', key: 'nikud_05B9', label: 'Holam',  color: '#0000ff' },
+    { char: '\u05BB', key: 'nikud_05BB', label: 'Kubutz', color: '#9900ff' },
+    { char: '\u05BC', key: 'nikud_05BC', label: 'Dagesh', color: '#ff00ff' },
   ];
 
-  // ---------------------------------------------------------------------------
-  // 2. ELEMENT REFS — main controls
-  // ---------------------------------------------------------------------------
-  const colorToggle = document.getElementById('colorToggle');
-  const fontToggle  = document.getElementById('fontToggle');
-  const focusToggle = document.getElementById('focusToggle'); // NEW: Focus Mode toggle
-  const spaceRange  = document.getElementById('spaceRange');
-  const spaceVal    = document.getElementById('spaceVal');
-  const nikudPanel  = document.getElementById('nikudPanel');
+  const colorToggle  = document.getElementById('colorToggle');
+  const fontToggle   = document.getElementById('fontToggle');
+  const focusToggle  = document.getElementById('focusToggle');
+  const spaceRange   = document.getElementById('spaceRange');
+  const spaceVal     = document.getElementById('spaceVal');
+  const nikudPanel   = document.getElementById('nikudPanel');
   const toggleAllOn  = document.getElementById('toggleAllOn');
   const toggleAllOff = document.getElementById('toggleAllOff');
-
-  // ---------------------------------------------------------------------------
-  // 3. BUILD THE PER-NIKUD TOGGLE ROWS DYNAMICALLY
-  // Each row shows: colour swatch  |  Hebrew char  |  name  |  toggle switch
-  // ---------------------------------------------------------------------------
-  const nikudCheckboxes = {}; // key → <input> element, for bulk operations
-
-  NIKUD_LIST.forEach(({ char, key, label, color }) => {
-    // Row container
-    const row = document.createElement('div');
-    row.className = 'nikud-row';
-
-    // Colour swatch
-    const swatch = document.createElement('span');
-    swatch.className = 'nikud-swatch';
-    swatch.style.background = color;
-
-    // Hebrew character display
-    const heChar = document.createElement('span');
-    heChar.className = 'nikud-char';
-    heChar.textContent = '\u05D1' + char; // Show on Bet so diacritic is visible
-
-    // Label
-    const lbl = document.createElement('span');
-    lbl.className = 'nikud-label';
-    lbl.textContent = label;
-
-    // Toggle switch (reuses the same CSS as the main toggles)
-    const switchLabel = document.createElement('label');
-    switchLabel.className = 'switch';
-
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.id   = key;
-    input.checked = true; // default; overwritten when settings load
-    nikudCheckboxes[key] = input;
-
-    const track = document.createElement('span');
-    track.className = 'track';
-
-    switchLabel.appendChild(input);
-    switchLabel.appendChild(track);
-
-    input.addEventListener('change', saveAll);
-
-    row.appendChild(swatch);
-    row.appendChild(heChar);
-    row.appendChild(lbl);
-    row.appendChild(switchLabel);
-    nikudPanel.appendChild(row);
-  });
-
-  // ---------------------------------------------------------------------------
-  // 4. BULK ALL-ON / ALL-OFF BUTTONS
-  // ---------------------------------------------------------------------------
-  toggleAllOn.addEventListener('click', () => {
-    NIKUD_LIST.forEach(({ key }) => { nikudCheckboxes[key].checked = true; });
-    saveAll();
-  });
-
-  toggleAllOff.addEventListener('click', () => {
-    NIKUD_LIST.forEach(({ key }) => { nikudCheckboxes[key].checked = false; });
-    saveAll();
-  });
-
-  // ---------------------------------------------------------------------------
-  // 5. COLLAPSIBLE NIKUD PANEL
-  // Clicking the nikud strip header expands/collapses the per-nikud settings.
-  // ---------------------------------------------------------------------------
-  const nikudHeader = document.getElementById('nikudHeader');
+  const modeBlock    = document.getElementById('modeBlock');
+  const modeNikud    = document.getElementById('modeNikud');
+  const opacityRange = document.getElementById('opacityRange');
+  const opacityVal   = document.getElementById('opacityVal');
+  const nikudHeader  = document.getElementById('nikudHeader');
   const nikudChevron = document.getElementById('nikudChevron');
-  let panelOpen = false;
 
-  nikudHeader.addEventListener('click', () => {
-    panelOpen = !panelOpen;
-    nikudPanel.style.display  = panelOpen ? 'block' : 'none';
-    nikudChevron.textContent  = panelOpen ? '▲' : '▼';
-  });
+  let highlightMode = 'block';
 
-  // ---------------------------------------------------------------------------
-  // 6. LOAD SAVED SETTINGS
-  // ---------------------------------------------------------------------------
+  function setHighlightMode(mode) {
+    highlightMode = mode;
+    if (modeBlock) modeBlock.classList.toggle('active', mode === 'block');
+    if (modeNikud) modeNikud.classList.toggle('active', mode === 'nikud');
+  }
+
+  const nikudCheckboxes = {};
+  if (nikudPanel) {
+    NIKUD_LIST.forEach(({ char, key, label, color }) => {
+      const row = document.createElement('div');
+      row.className = 'nikud-row';
+      row.innerHTML = `
+        <span class="nikud-swatch" style="background: ${color}"></span>
+        <span class="nikud-char">\u05D1${char}</span>
+        <span class="nikud-label">${label}</span>
+        <label class="switch">
+          <input type="checkbox" id="${key}">
+          <span class="track"></span>
+        </label>`;
+      nikudPanel.appendChild(row);
+      const input = row.querySelector('input');
+      if (input) {
+        nikudCheckboxes[key] = input;
+        input.addEventListener('change', saveAll);
+      }
+    });
+  }
+
+ function saveAll() {
+    const toSave = {
+      colorNekudot:     colorToggle ? colorToggle.checked : true,
+      fontEnabled:      fontToggle ? fontToggle.checked : true,
+      focusMode:        focusToggle ? focusToggle.checked : false,
+      letterSpacing:    spaceRange ? parseInt(spaceRange.value, 10) : 0,
+      highlightMode:    highlightMode,
+      highlightOpacity: opacityRange ? parseInt(opacityRange.value, 10) : 100,
+    };
+    
+    // Crucial: Only save nikud keys if the checkboxes actually exist in the popup
+    NIKUD_LIST.forEach(({ key }) => {
+      if (nikudCheckboxes[key]) {
+        toSave[key] = nikudCheckboxes[key].checked;
+      }
+    });
+
+    chrome.storage.sync.set(toSave, () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, { type: 'OTIYOT_SETTINGS', settings: toSave }).catch(() => {});
+        }
+      });
+    });
+  }
+
   const nikudDefaults = {};
   NIKUD_LIST.forEach(({ key }) => { nikudDefaults[key] = true; });
 
   chrome.storage.sync.get({
-    colorNekudot:  true,
-    fontEnabled:   true,
-    focusMode:     false, // NEW: Default for Focus Mode is off
-    letterSpacing: 0,
-    ...nikudDefaults,
+    colorNekudot: true, fontEnabled: true, focusMode: false,
+    letterSpacing: 0, highlightMode: 'block', highlightOpacity: 100,
+    ...nikudDefaults
   }, (res) => {
-    colorToggle.checked   = res.colorNekudot;
-    fontToggle.checked    = res.fontEnabled;
-    focusToggle.checked   = res.focusMode; // NEW: Set the focus toggle state
-    spaceRange.value      = res.letterSpacing;
-    spaceVal.textContent  = res.letterSpacing + 'px';
-
+    if (colorToggle) colorToggle.checked = res.colorNekudot;
+    if (fontToggle)  fontToggle.checked  = res.fontEnabled;
+    if (focusToggle) focusToggle.checked = res.focusMode;
+    if (spaceRange) {
+      spaceRange.value = res.letterSpacing;
+      if (spaceVal) spaceVal.textContent = res.letterSpacing + 'px';
+    }
+    if (opacityRange) {
+      opacityRange.value = res.highlightOpacity;
+      if (opacityVal) opacityVal.textContent = res.highlightOpacity + '%';
+    }
     NIKUD_LIST.forEach(({ key }) => {
-      nikudCheckboxes[key].checked = res[key] !== false;
+      if (nikudCheckboxes[key]) nikudCheckboxes[key].checked = res[key] !== false;
     });
+    setHighlightMode(res.highlightMode || 'block');
   });
 
-  // ---------------------------------------------------------------------------
-  // 7. SAVE ALL SETTINGS
-  // ---------------------------------------------------------------------------
-  function saveAll() {
-    const toSave = {
-      colorNekudot:  colorToggle.checked,
-      fontEnabled:   fontToggle.checked,
-      focusMode:     focusToggle.checked, // NEW: Save the Focus Mode state
-      letterSpacing: parseInt(spaceRange.value, 10),
-    };
-    NIKUD_LIST.forEach(({ key }) => {
-      toSave[key] = nikudCheckboxes[key].checked;
-    });
-    chrome.storage.sync.set(toSave);
-  }
-
-  // Event Listeners for main toggles
-  colorToggle.addEventListener('change', saveAll);
-  fontToggle.addEventListener('change', saveAll);
-  focusToggle.addEventListener('change', saveAll); // NEW: Save when focus mode toggles
-
-  // Event Listener for the range slider
-  spaceRange.addEventListener('input', () => {
-    spaceVal.textContent = spaceRange.value + 'px';
+  if (modeBlock) modeBlock.addEventListener('click', (e) => { e.preventDefault(); setHighlightMode('block'); saveAll(); });
+  if (modeNikud) modeNikud.addEventListener('click', (e) => { e.preventDefault(); setHighlightMode('nikud'); saveAll(); });
+  if (colorToggle) colorToggle.addEventListener('change', saveAll);
+  if (fontToggle)  fontToggle.addEventListener('change', saveAll);
+  if (focusToggle) focusToggle.addEventListener('change', saveAll);
+  
+  if (opacityRange) opacityRange.addEventListener('input', () => {
+    if (opacityVal) opacityVal.textContent = opacityRange.value + '%';
     saveAll();
+  });
+
+  if (spaceRange) spaceRange.addEventListener('input', () => {
+    if (spaceVal) spaceVal.textContent = spaceRange.value + 'px';
+    saveAll();
+  });
+
+  if (toggleAllOn) toggleAllOn.addEventListener('click', () => {
+    Object.values(nikudCheckboxes).forEach(cb => cb.checked = true);
+    saveAll();
+  });
+
+  if (toggleAllOff) toggleAllOff.addEventListener('click', () => {
+    Object.values(nikudCheckboxes).forEach(cb => cb.checked = false);
+    saveAll();
+  });
+
+  if (nikudHeader) nikudHeader.addEventListener('click', () => {
+    const isVisible = nikudPanel && nikudPanel.style.display === 'block';
+    if (nikudPanel) nikudPanel.style.display = isVisible ? 'none' : 'block';
+    if (nikudChevron) nikudChevron.textContent = isVisible ? '▼' : '▲';
   });
 });

@@ -1,57 +1,95 @@
 <!DOCTYPE html>
+<!--
+  popup.html — Otiyot+ Extension UI
+  ═══════════════════════════════════════════════════════════════════════════════
+  Layout overview (top to bottom):
+    ┌─────────────────────────────────────────┐
+    │  .header  (logo + title)                │
+    ├─────────────────────────────────────────┤
+    │  .content  (setting rows)               │
+    │    • Color Niqqud toggle                │
+    │        └─ colour-dot strip + Customize  │  ← expand/collapse #nikudPanel
+    │        └─ #nikudPanel  (expandable)     │
+    │    • Font toggle                        │
+    │    • Reading Focus toggle               │
+    │    • Letter Spacing slider              │
+    ├─────────────────────────────────────────┤
+    │  .footer                                │
+    └─────────────────────────────────────────┘
+
+  The Customize strip and #nikudPanel live INSIDE the Color Niqqud card so it
+  is visually obvious they belong to that feature. Clicking the strip
+  expands/collapses the per-vowel customisation panel.
+
+  Design tokens are on :root so a future dark-mode pass only touches one block.
+  ═══════════════════════════════════════════════════════════════════════════════
+-->
 <html dir="ltr">
 <head>
   <meta charset="utf-8" />
   <title>Otiyot+</title>
+
+  <!-- Rubik: clean, readable, slightly characterful — suits a reading-aid tool -->
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600&display=swap" rel="stylesheet">
+
   <style>
+    /* ── DESIGN TOKENS ─────────────────────────────────────────────────────── */
     :root {
-      --sky:        #29abe2;
-      --gold:       #e8b840;
-      --navy:       #0d2340;
-      --ink:        #1a2f4a;
-      --mist:       #f4f8fc;
-      --card:       #ffffff;
-      --border:     #dde8f2;
-      --muted:      #7a9bb8;
-      --toggle-off: #c5d7e8;
-      --toggle-on:  #29abe2;
-      --radius:     12px;
+      --sky:        #29abe2;   /* primary action / toggle-on colour            */
+      --gold:       #e8b840;   /* accent: logo border + beta badge             */
+      --navy:       #0d2340;   /* header background                            */
+      --ink:        #1a2f4a;   /* body text                                    */
+      --mist:       #f0f5fa;   /* page background                              */
+      --card:       #ffffff;   /* setting-row card background                  */
+      --border:     #dde8f2;   /* card borders and dividers                    */
+      --muted:      #7a9bb8;   /* secondary / hint text                        */
+      --toggle-off: #c5d7e8;   /* toggle track when unchecked                  */
+      --toggle-on:  #29abe2;   /* toggle track when checked                    */
+      --radius:     14px;      /* card corner radius                           */
     }
 
-    /* ── RESET & BASE ── */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* ── RESET ──────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── BASE ───────────────────────────────────────────────────────────────── */
     body {
       font-family: 'Rubik', sans-serif;
       background: var(--mist);
       color: var(--ink);
-      width: 270px;
+      width: 282px;
       overflow: hidden;
     }
 
-    /* ── HEADER SECTION ── */
+    /* ══════════════════════════════════════════════════════════════════════════
+       HEADER
+       Dark navy bar with a diagonal-stripe texture and a gold→sky gradient
+       line along the bottom edge.
+    ══════════════════════════════════════════════════════════════════════════ */
     .header {
       background: var(--navy);
-      padding: 14px 16px 12px;
+      padding: 16px 18px 15px;
       display: flex;
       align-items: center;
-      gap: 11px;
+      gap: 13px;
       position: relative;
       overflow: hidden;
     }
-    /* Diagonal background stripes decoration */
+
+    /* Subtle diagonal stripe so the header doesn't feel completely flat */
     .header::before {
       content: '';
       position: absolute;
       inset: 0;
       background: repeating-linear-gradient(
-        -55deg, transparent, transparent 8px,
-        rgba(255,255,255,0.03) 8px, rgba(255,255,255,0.03) 9px
+        -55deg,
+        transparent,            transparent 8px,
+        rgba(255,255,255,0.03)  8px,
+        rgba(255,255,255,0.03)  9px
       );
       pointer-events: none;
     }
-    /* Gold/Sky bottom border line */
+
+    /* Gold → sky gradient accent line along the bottom edge */
     .header::after {
       content: '';
       position: absolute;
@@ -59,74 +97,173 @@
       height: 3px;
       background: linear-gradient(90deg, var(--gold), var(--sky));
     }
+
     .logo {
-      width: 44px; height: 44px;
-      border-radius: 10px;
-      object-fit: cover;
-      border: 2px solid rgba(255,255,255,0.15);
+      width: 46px; height: 46px;
+      border-radius: 11px;
+      border: 2px solid rgba(255,255,255,0.18);
       flex-shrink: 0;
       position: relative; z-index: 1;
     }
-    .header-text { position: relative; z-index: 1; }
-    .header-title {
-      font-size: 20px; font-weight: 600;
-      color: #fff; letter-spacing: 0.5px; line-height: 1;
-    }
-    .header-title .plus { color: var(--gold); }
-    .header-sub {
-      font-size: 10px; font-weight: 300;
-      color: rgba(255,255,255,0.55);
-      letter-spacing: 0.8px; text-transform: uppercase; margin-top: 3px;
+
+    /* Stacked text block to the right of the logo */
+    .header-text {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
     }
 
-    /* ── NIKUD CUSTOMIZATION BAR ── */
-    /* This strip acts as the button to expand/collapse the detailed nikud list */
-    .nikud-header {
+    .header-title {
+      font-size: 21px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: 0.4px;
+      line-height: 1;
+    }
+    .header-title .plus { color: var(--gold); }
+
+    .header-sub {
+      font-size: 10px;
+      font-weight: 300;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 0.9px;
+      text-transform: uppercase;
+    }
+
+    /* Gold pill badge */
+    .beta-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--navy);
+      background: var(--gold);
+      border-radius: 4px;
+      padding: 2px 6px;
+      width: fit-content;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+       MAIN CONTENT — four setting cards
+    ══════════════════════════════════════════════════════════════════════════ */
+    .content {
+      padding: 6px 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    /* Generic card wrapper for every setting row */
+    .row {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;   /* allow sub-sections to stack vertically */
+      gap: 0;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .row:hover {
+      border-color: rgba(41,171,226,0.4);
+      box-shadow: 0 0 0 3px rgba(41,171,226,0.07);
+    }
+
+    /* The top part of a row: icon + label text + toggle, in a horizontal line */
+    .row-top {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 10px 14px 6px;
+      gap: 12px;
+      cursor: pointer;  /* whole row is clickable since it is a <label> */
+    }
+
+    /* Coloured icon pill on the left side of each row */
+    .row-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .row-icon.palette { background: rgba(41,171,226,0.12); }
+    .row-icon.font    { background: rgba(232,184,64,0.15); }
+    .row-icon.focus   { background: rgba(155,81,224,0.13); }
+    .row-icon.space   { background: rgba(41,171,226,0.08); }
+
+    .row-body { flex: 1; min-width: 0; }
+    .row-title { font-size: 12.5px; font-weight: 500; color: var(--ink); line-height: 1.2; }
+    .row-sub   { font-size: 10px; color: var(--muted); font-weight: 300; margin-top: 2px; }
+
+    /* .row-label makes the icon+text area a clickable label for its <input> */
+    .row-label {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      cursor: pointer;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════════
+       COLOUR NIQQUD CARD — sub-sections
+       The Customize strip and the expand panel sit inside the same card as
+       the Color Niqqud toggle, making the relationship visually clear.
+    ══════════════════════════════════════════════════════════════════════════ */
+
+    /* Thin divider line separating the toggle row from the Customize strip */
+    .nikud-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 10px -14px 0; /* bleed to card edges */
+    }
+
+    /* Clickable strip: colour dots + "Customize" label + chevron */
+    .nikud-customize-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0 0;
       cursor: pointer;
       user-select: none;
     }
-    .nikud-header:hover .nikud-hint { color: var(--ink); }
+    .nikud-customize-strip:hover .nikud-hint { color: var(--ink); }
 
-    .nikud-strip {
-      display: flex;
-      gap: 3px;
-      flex: 1;
-    }
-    .nikud-dot {
-      flex: 1;
-      height: 5px;
-      border-radius: 2px;
-    }
+    /* Row of coloured dots previewing the vowel colour scheme */
+    .nikud-strip { display: flex; gap: 3px; flex: 1; }
+    .nikud-dot   { flex: 1; height: 5px; border-radius: 3px; }
+
     .nikud-hint {
-      font-size: 9px;
+      font-size: 11px;
+      font-weight: 500;
       color: var(--muted);
       white-space: nowrap;
       transition: color 0.15s;
     }
-    #nikudChevron {
-      font-size: 8px;
-      color: var(--muted);
-    }
+    #nikudChevron { font-size: 10px; color: var(--muted); }
 
-    /* ── EXPANDABLE NIKUD PANEL ── */
+    /* ══════════════════════════════════════════════════════════════════════════
+       NIKUD PANEL  (hidden by default, expanded by clicking the strip above)
+       Contains:  bulk on/off buttons | mode toggle | opacity slider |
+                  per-vowel toggle rows (appended by popup.js)
+    ══════════════════════════════════════════════════════════════════════════ */
     #nikudPanel {
-      display: none; /* Collapsed by default, toggled via JavaScript */
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      margin: 0 14px 4px;
+      display: none;           /* toggled to 'block' by popup.js */
+      margin: 8px -14px -12px; /* bleed to card edges + cancel card bottom padding */
+      border-top: 1px solid var(--border);
       overflow: hidden;
+      border-radius: 0 0 var(--radius) var(--radius);
     }
 
-    /* Bulk actions (All on / All off) */
+    /* Bulk on / off buttons */
     .nikud-bulk {
       display: flex;
       gap: 6px;
-      padding: 8px 10px;
+      padding: 9px 11px;
       border-bottom: 1px solid var(--border);
     }
     .bulk-btn {
@@ -134,8 +271,8 @@
       font-family: 'Rubik', sans-serif;
       font-size: 10px;
       font-weight: 500;
-      padding: 4px 0;
-      border-radius: 6px;
+      padding: 5px 0;
+      border-radius: 7px;
       border: 1px solid var(--border);
       background: var(--mist);
       color: var(--ink);
@@ -144,14 +281,23 @@
     }
     .bulk-btn:hover { background: var(--border); }
     .bulk-btn.on  { border-color: var(--sky);  color: var(--sky);  }
-    .bulk-btn.off { border-color: #e57373; color: #e57373; }
+    .bulk-btn.off { border-color: #e57373;      color: #e57373;     }
 
-    /* Individual rows (Generated dynamically in popup.js) */
+    /* Mode (Block / Niqqud only) + Opacity controls */
+    .nikud-color-controls {
+      padding: 10px 11px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Per-vowel toggle rows appended dynamically by popup.js */
     .nikud-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
+      gap: 9px;
+      padding: 7px 11px;
       border-bottom: 1px solid var(--border);
     }
     .nikud-row:last-child { border-bottom: none; }
@@ -166,92 +312,99 @@
       font-size: 16px;
       width: 28px;
       text-align: center;
-      flex-shrink: 0;
       direction: rtl;
-      line-height: 1.3;
+      line-height: 1.4;
     }
-    .nikud-label {
-      flex: 1;
-      font-size: 11px;
-      color: var(--ink);
-    }
+    .nikud-label { flex: 1; font-size: 11px; color: var(--ink); }
 
-    /* ── MAIN SETTINGS ROWS ── */
-    .content {
-      padding: 4px 14px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .row {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 10px 13px;
-      display: flex;
-      align-items: center;
-      gap: 11px;
-      transition: border-color 0.2s, box-shadow 0.2s;
-      cursor: pointer;
-    }
-    .row:hover {
-      border-color: var(--sky);
-      box-shadow: 0 0 0 3px rgba(41,171,226,0.08);
-    }
-    .row-icon {
-      width: 32px; height: 32px;
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px; flex-shrink: 0;
-    }
-    .row-icon.palette { background: rgba(41,171,226,0.12); }
-    .row-icon.font    { background: rgba(232,184,64,0.15); }
-    .row-icon.space   { background: rgba(41,171,226,0.08); }
-    .row-icon.focus   { background: rgba(155, 81, 224, 0.15); } /* New Focus mode icon color */
-
-    .row-body { flex: 1; min-width: 0; }
-    .row-title { font-size: 12.5px; font-weight: 500; color: var(--ink); }
-    .row-sub   { font-size: 10px; color: var(--muted); font-weight: 300; margin-top: 1px; }
-
-    /* ── TOGGLE SWITCH COMPONENT ── */
+    /* ── Toggle switch (shared across all rows) ─────────────────────────────── */
     .switch {
       position: relative;
-      width: 38px; height: 21px;
+      width: 38px; height: 22px;
       flex-shrink: 0;
     }
     .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
     .track {
-      position: absolute; inset: 0;
+      position: absolute;
+      inset: 0;
       background: var(--toggle-off);
-      border-radius: 21px; cursor: pointer;
+      border-radius: 22px;
+      cursor: pointer;
       transition: background 0.25s;
     }
     .track::before {
       content: '';
       position: absolute;
-      width: 15px; height: 15px;
+      width: 16px; height: 16px;
       left: 3px; top: 3px;
-      background: #fff; border-radius: 50%;
+      background: #fff;
+      border-radius: 50%;
       transition: transform 0.25s cubic-bezier(.4,0,.2,1);
-      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.22);
     }
-    .switch input:checked + .track      { background: var(--toggle-on); }
-    .switch input:checked + .track::before      { transform: translateX(17px); }
+    .switch input:checked + .track           { background: var(--toggle-on); }
+    .switch input:checked + .track::before   { transform: translateX(16px);  }
 
-    /* ── SLIDER COMPONENT ── */
-    .spacing-row    { flex-direction: column; align-items: stretch; gap: 8px; cursor: default; }
-    .spacing-top    { display: flex; align-items: center; gap: 11px; }
-    .spacing-val    { font-size: 12px; font-weight: 500; color: var(--sky); margin-left: auto; }
+    /* ── Segmented control (Block / Niqqud only) ─────────────────────────── */
+    .mode-toggle {
+      display: flex;
+      background: var(--border);
+      border-radius: 9px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .mode-btn {
+      flex: 1;
+      font-family: 'Rubik', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 6px 0;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s;
+      text-align: center;
+    }
+    .mode-btn.active {
+      background: var(--card);
+      color: var(--sky);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.10);
+    }
 
+    /* ── Opacity row ──────────────────────────────────────────────────────── */
+    .opacity-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+    .opacity-label { font-size: 10px; font-weight: 500; color: var(--muted); }
+
+    /* ── Letter-spacing card ────────────────────────────────────────────────── */
+    .spacing-row { gap: 10px; }
+    .spacing-top { display: flex; align-items: center; gap: 12px; }
+    .spacing-val { font-size: 12px; font-weight: 500; color: var(--sky); margin-left: auto; }
+
+    /* ── Range slider (shared by opacity + letter-spacing) ─────────────────── */
     input[type=range] {
-      -webkit-appearance: none; appearance: none;
-      width: 100%; height: 4px; border-radius: 2px;
-      background: var(--border); outline: none; cursor: pointer; margin: 0;
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
+      cursor: pointer;
     }
     input[type=range]::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none;
-      width: 16px; height: 16px; border-radius: 50%;
-      background: var(--sky); cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      width: 17px; height: 17px;
+      border-radius: 50%;
+      background: var(--sky);
+      cursor: pointer;
       box-shadow: 0 0 0 3px rgba(41,171,226,0.2);
       transition: box-shadow 0.2s;
     }
@@ -259,91 +412,145 @@
       box-shadow: 0 0 0 5px rgba(41,171,226,0.25);
     }
 
-    /* ── FOOTER ── */
+    /* ── Footer ────────────────────────────────────────────────────────────── */
     .footer {
-      padding: 4px 16px 12px;
+      padding: 4px 16px 13px;
       text-align: center;
-      font-size: 9.5px; color: var(--muted); letter-spacing: 0.4px;
+      font-size: 9.5px;
+      color: var(--muted);
+      letter-spacing: 0.3px;
     }
   </style>
 </head>
 <body>
 
+  <!-- ══════════════════════════════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════════════════════════════ -->
   <div class="header">
     <img class="logo" src="icons/icon48.png" alt="Otiyot+ logo">
     <div class="header-text">
       <div class="header-title">Otiyot<span class="plus">+</span></div>
       <div class="header-sub">Hebrew reading tool</div>
+      <span class="beta-badge">Open Beta</span>
     </div>
   </div>
 
-  <div class="nikud-header" id="nikudHeader" title="Click to customize individual nikud">
-    <div class="nikud-strip">
-      <div class="nikud-dot" style="background:#3877ff"></div>
-      <div class="nikud-dot" style="background:#7debb0"></div>
-      <div class="nikud-dot" style="background:#fd29ba"></div>
-      <div class="nikud-dot" style="background:#f81b1b"></div>
-      <div class="nikud-dot" style="background:#66fd7a"></div>
-      <div class="nikud-dot" style="background:#8d62fa"></div>
-      <div class="nikud-dot" style="background:#6ee4ef"></div>
-      <div class="nikud-dot" style="background:#1cc00d"></div>
-      <div class="nikud-dot" style="background:#f2fe06"></div>
-    </div>
-    <span class="nikud-hint">Customize</span>
-    <span id="nikudChevron">▼</span>
-  </div>
-
-  <div id="nikudPanel">
-    <div class="nikud-bulk">
-      <button class="bulk-btn on"  id="toggleAllOn">✓ All on</button>
-      <button class="bulk-btn off" id="toggleAllOff">✕ All off</button>
-    </div>
-    </div>
-
+  <!-- ══════════════════════════════════════════════════════════════════════
+       MAIN SETTINGS
+  ══════════════════════════════════════════════════════════════════════ -->
   <div class="content">
 
-    <label class="row" for="colorToggle">
-      <div class="row-icon palette">🎨</div>
-      <div class="row-body">
-        <div class="row-title">Color Niqqud</div>
-        <div class="row-sub">Highlight vowel marks</div>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="colorToggle">
-        <span class="track"></span>
-      </label>
-    </label>
+    <!-- ── Color Niqqud card ─────────────────────────────────────────────
+         The Customize strip and the nikud panel are nested INSIDE this card
+         so it is visually obvious they belong to the Color Niqqud feature.
+    ──────────────────────────────────────────────────────────────────── -->
+    <div class="row">
 
-    <label class="row" for="fontToggle">
-      <div class="row-icon font">א</div>
-      <div class="row-body">
-        <div class="row-title">Dyslex-Kriyah Font</div>
-        <div class="row-sub">Dyslexia-friendly typeface</div>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="fontToggle">
-        <span class="track"></span>
+      <!-- Top row: label wraps everything so clicking anywhere (icon, text, or switch) toggles the checkbox -->
+      <label class="row-top" for="colorToggle">
+        <div class="row-icon palette">🎨</div>
+        <div class="row-body">
+          <div class="row-title">Color Niqqud</div>
+          <div class="row-sub">Highlight vowel marks by colour</div>
+        </div>
+        <div class="switch">
+          <input type="checkbox" id="colorToggle">
+          <span class="track"></span>
+        </div>
       </label>
-    </label>
 
-    <label class="row" for="focusToggle">
-      <div class="row-icon focus">🔍</div>
-      <div class="row-body">
-        <div class="row-title">Reading Focus</div>
-        <div class="row-sub">Blur page when text is selected</div>
+      <!-- Thin divider separates the toggle from the Customize strip -->
+      <div class="nikud-divider"></div>
+
+      <!-- Customize strip: colour dots + label + chevron.
+           Clicking this expands/collapses #nikudPanel. -->
+      <div class="nikud-customize-strip" id="nikudHeader"
+           title="Click to customise individual niqqud colours">
+        <div class="nikud-strip">
+          <!-- One dot per vowel — order matches NIKUD_LIST in popup.js -->
+          <div class="nikud-dot" style="background:#cc0000"></div> <!-- Shva Na   -->
+          <div class="nikud-dot" style="background:#ff88aa"></div> <!-- Shva Nach -->
+          <div class="nikud-dot" style="background:#ff9900"></div> <!-- Hiriq     -->
+          <div class="nikud-dot" style="background:#cccc00"></div> <!-- Tsere     -->
+          <div class="nikud-dot" style="background:#00cc00"></div> <!-- Segol     -->
+          <div class="nikud-dot" style="background:#6aa84f"></div> <!-- Patach    -->
+          <div class="nikud-dot" style="background:#6fa8dc"></div> <!-- Kamatz    -->
+          <div class="nikud-dot" style="background:#0000ff"></div> <!-- Holam     -->
+          <div class="nikud-dot" style="background:#9900ff"></div> <!-- Kubutz    -->
+          <div class="nikud-dot" style="background:#ff00ff"></div> <!-- Dagesh    -->
+        </div>
+        <span class="nikud-hint">Customize</span>
+        <span id="nikudChevron">▼</span>
       </div>
-      <label class="switch">
-        <input type="checkbox" id="focusToggle">
-        <span class="track"></span>
-      </label>
-    </label>
 
+      <!-- Expandable per-vowel panel (hidden by default).
+           popup.js appends one .nikud-row per vowel at the bottom. -->
+      <div id="nikudPanel">
+
+        <!-- Bulk toggle buttons -->
+        <div class="nikud-bulk">
+          <button class="bulk-btn on"  id="toggleAllOn">✓ All on</button>
+          <button class="bulk-btn off" id="toggleAllOff">✕ All off</button>
+        </div>
+
+        <!-- Highlight mode (Block / Niqqud only) + Opacity slider -->
+        <div class="nikud-color-controls">
+          <div class="mode-toggle">
+            <button class="mode-btn active" id="modeBlock">Block</button>
+            <button class="mode-btn"        id="modeNikud">Niqqud only</button>
+          </div>
+          <div class="opacity-row">
+            <div class="opacity-top">
+              <span class="opacity-label">Opacity</span>
+              <span id="opacityVal" class="spacing-val">100%</span>
+            </div>
+            <input type="range" id="opacityRange" min="10" max="100" value="100">
+          </div>
+        </div>
+
+        <!-- Per-vowel rows injected by popup.js -->
+      </div>
+
+    </div><!-- end Color Niqqud card -->
+
+    <!-- ── Dyslexia-friendly font ───────────────────────────────────────── -->
+    <div class="row">
+      <label class="row-top" for="fontToggle">
+        <div class="row-icon font">א</div>
+        <div class="row-body">
+          <div class="row-title">Dyslex-Kriyah Font</div>
+          <div class="row-sub">Dyslexia-friendly Hebrew typeface</div>
+        </div>
+        <div class="switch">
+          <input type="checkbox" id="fontToggle">
+          <span class="track"></span>
+        </div>
+      </label>
+    </div>
+
+    <!-- ── Reading Focus (blur behind selected text) ────────────────────── -->
+    <div class="row">
+      <label class="row-top" for="focusToggle">
+        <div class="row-icon focus">🔍</div>
+        <div class="row-body">
+          <div class="row-title">Reading Focus</div>
+          <div class="row-sub">Blur the page outside your selection</div>
+        </div>
+        <div class="switch">
+          <input type="checkbox" id="focusToggle">
+          <span class="track"></span>
+        </div>
+      </label>
+    </div>
+
+    <!-- ── Letter Spacing slider ────────────────────────────────────────── -->
     <div class="row spacing-row">
       <div class="spacing-top">
         <div class="row-icon space">↔</div>
         <div class="row-body">
           <div class="row-title">Letter Spacing</div>
-          <div class="row-sub">Extra space between letters</div>
+          <div class="row-sub">Extra space between Hebrew letters</div>
         </div>
         <span id="spaceVal" class="spacing-val">0px</span>
       </div>
@@ -352,7 +559,10 @@
 
   </div>
 
-  <div class="footer">v1.0.3 &nbsp;·&nbsp; Developed by Mayer Prager KoHack 2026</div>
+  <!-- ══════════════════════════════════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="footer">v1.1.0 &nbsp;·&nbsp; Developed by Mayer Prager &nbsp;·&nbsp; KoHack 2026</div>
 
   <script src="popup.js"></script>
 </body>
