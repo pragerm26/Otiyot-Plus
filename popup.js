@@ -1,5 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+  
+
   const NIKUD_LIST = [
     { char: '\u05B0', key: 'nikud_shva_na',   label: 'Shva Na',   color: '#cc0000' }, // deep red — voiced
     { char: '\u05B0', key: 'nikud_shva_nach',  label: 'Shva Nach', color: '#ff88aa' }, // pink — silent
