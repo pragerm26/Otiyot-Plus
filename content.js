@@ -100,7 +100,7 @@
     }
 
     let fontUrl = '';
-    try { fontUrl = chrome.runtime.getURL('dyslexia-hebrew-extended.otf'); } catch (e) { return; }
+    try { fontUrl = chrome.runtime.getURL('fonts/dyslexia-hebrew-extended.otf'); } catch (e) { return; }
 
     const fontFace = `@font-face { font-family: 'DyslexiaHebrew'; src: url('${fontUrl}') format('opentype'); unicode-range: U+05D0-05EA, U+05B0-05BD, U+05BF, U+05C1-05C2, U+05C4-05C5, U+05C7, U+FB1D-FB4E; }`;
 
