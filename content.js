@@ -4,11 +4,12 @@
 
 (function () {
 
-  // Guard against "Extension context invalidated"
   function isContextValid() {
     try { return !!chrome.runtime?.id; } catch (e) { return false; }
   }
   if (!isContextValid()) return;
+
+  const CURRENT_HOST = location.hostname.toLowerCase();
 
   // ---------------------------------------------------------------------------
   // 1. NIKUD COLOUR MAP & CONFIG
@@ -106,7 +107,7 @@
     const nikudOnlyRule = settings.colorNekudot && settings.highlightMode === 'nikud' ? `
       .otiyot-letter-block[data-nikud] { color: transparent !important; position: relative; }
       .otiyot-letter-block[data-nikud]::before { content: attr(data-letter); position: absolute; left: 0; top: 0; color: var(--otiyot-text-color, inherit); pointer-events: none; white-space: pre; }
-      .otiyot-letter-block[data-nikud]::after  { content: attr(data-nikud);  position: absolute; left: 0; top: 0; color: var(--otiyot-nikud-color);      pointer-events: none; white-space: pre; }
+      .otiyot-letter-block[data-nikud]::after  { content: attr(data-nikud);  position: absolute; left: 0; top: 0; color: var(--otiyot-nikud-color); pointer-events: none; white-space: pre; }
     ` : '';
 
     if (settings.colorNekudot && settings.highlightMode === 'nikud') {
@@ -123,19 +124,38 @@
       ${nikudOnlyRule}
       #otiyot-focus-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; z-index: 2147483647; transition: opacity 0.3s; opacity: 0; will-change: clip-path; }
       #otiyot-focus-overlay.active { opacity: 1; }
-      
-      /* Integrated Selection Styles */
       ${settings.focusMode ? `
-        ::selection { background: transparent !important; color: inherit !important; }
         .otiyot-letter-block::selection { background: transparent !important; color: inherit !important; }
       ` : ''}
     `;
   }
 
   // ---------------------------------------------------------------------------
-  // 5. PROCESSING LOGIC (Hebrew Grammar & DOM)
+  // 5. SAFE NODE FILTERING
   // ---------------------------------------------------------------------------
-  function classifyShva(text, letterPos, diacritics, prevDominantNikud, prevWasShva) {
+  const SKIP_TAGS = new Set([
+    'SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION',
+    'SVG', 'MATH', 'CANVAS', 'VIDEO', 'AUDIO', 'IFRAME',
+    'CODE', 'PRE', 'KBD', 'SAMP',
+  ]);
+
+  function isInsideInteractive(el) {
+    let cur = el;
+    while (cur && cur !== document.body) {
+      if (!cur.tagName) { cur = cur.parentElement; continue; }
+      if (SKIP_TAGS.has(cur.tagName.toUpperCase())) return true;
+      if (cur.isContentEditable) return true;
+      const role = cur.getAttribute && cur.getAttribute('role');
+      if (role && /^(textbox|spinbutton|combobox|listbox|grid|treegrid|slider)$/i.test(role)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 6. PROCESSING LOGIC
+  // ---------------------------------------------------------------------------
+  function classifyShva(text, letterPos, diacritics, prevDominantNikud) {
     let wordInitial = true;
     for (let k = letterPos - 1; k >= 0; k--) {
       const c = text.charCodeAt(k);
@@ -150,25 +170,30 @@
     return 'SHVA_NACH';
   }
 
-  function classifyVav(diacritics) {
-    if (diacritics.includes('\u05B9')) return 'HOLAM_VAV';
-    if (diacritics.includes('\u05BC') && !/[\u05B0-\u05BB\u05BD]/.test(diacritics.split('\u05BC').join(''))) return 'SHURUK';
-    return null;
-  }
-
   function processTextNodes(root) {
     const active = settings.colorNekudot || settings.fontEnabled || settings.letterSpacing > 0;
     if (!active) return;
+
+    // Quick bail: if this subtree has no Hebrew at all, skip it entirely
+    if (root.textContent && !/[\u05D0-\u05EA]/.test(root.textContent)) return;
+
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
     const targets = [];
     let node;
     while ((node = walker.nextNode())) {
-      if (node.parentElement && !new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT']).has(node.parentElement.tagName) && !node.parentElement.classList.contains('otiyot-letter-block')) targets.push(node);
+      const el = node.parentElement;
+      if (!el) continue;
+      if (el.classList.contains('otiyot-letter-block')) continue;
+      if (isInsideInteractive(el)) continue;
+      targets.push(node);
     }
 
     targets.forEach(textNode => {
       const text = textNode.nodeValue;
       if (!/[\u05D0-\u05EA]/.test(text)) return;
+      // Safety: skip if parent is no longer in the document
+      if (!textNode.parentNode || !document.contains(textNode.parentNode)) return;
+
       const fragment = document.createDocumentFragment();
       let i = 0, prevDominantNikud = null, prevWasShva = false;
 
@@ -177,17 +202,21 @@
         if (isHebrewLetter(charCode)) {
           let diacritics = '', rawNikud = null, j = i + 1;
           while (j < text.length) {
-            const next = text[j], nCode = next.charCodeAt(0);
-            if (isLetterModifier(nCode) || NIKUD_SET.has(next) || ALL_NIKUD_SET.has(next) || isCantillation(nCode)) {
-              if (NIKUD_SET.has(next) && (rawNikud === null || (next !== '\u05BC' && rawNikud === '\u05BC'))) rawNikud = next;
-              diacritics += next; j++;
+            const nc = text.charCodeAt(j);
+            if (ALL_NIKUD_SET.has(text[j]) || isCantillation(nc) || isLetterModifier(nc)) {
+              if (ALL_NIKUD_SET.has(text[j]) && rawNikud === null) rawNikud = text[j];
+              diacritics += text[j]; j++;
             } else break;
           }
-          let colourKey = (char === '\u05D5') ? (classifyVav(diacritics) === 'HOLAM_VAV' ? '\u05B9' : (classifyVav(diacritics) === 'SHURUK' ? '\u05BB' : rawNikud)) : rawNikud;
-          if (rawNikud === SHVA_CHAR || diacritics.includes(SHVA_CHAR)) {
-            colourKey = classifyShva(text, i, diacritics, prevDominantNikud, prevWasShva);
-            prevWasShva = true;
-          } else prevWasShva = false;
+
+          let colourKey = null;
+          if (rawNikud === SHVA_CHAR) {
+            colourKey = classifyShva(text, i, diacritics, prevDominantNikud);
+          } else if (rawNikud) {
+            colourKey = rawNikud;
+          }
+
+          prevWasShva = (rawNikud === SHVA_CHAR);
           prevDominantNikud = rawNikud;
 
           const span = document.createElement('span');
@@ -196,16 +225,31 @@
           if (settings.colorNekudot && color) {
             const rgba = hexToRgba(color, settings.highlightOpacity);
             if (settings.highlightMode === 'nikud') {
-              span.setAttribute('data-letter', char); span.setAttribute('data-nikud', diacritics);
+              span.setAttribute('data-letter', char);
+              span.setAttribute('data-nikud', diacritics);
               span.style.setProperty('--otiyot-nikud-color', rgba);
-            } else span.style.backgroundColor = rgba;
+            } else {
+              span.style.backgroundColor = rgba;
+            }
           }
           span.textContent = char + diacritics;
           fragment.appendChild(span);
           if (settings.letterSpacing > 0) fragment.appendChild(document.createTextNode('\u200B'));
           i = j;
         } else {
-          fragment.appendChild(document.createTextNode(char)); i++;
+          // For spaces between Hebrew words, inject extra visual gap when letter spacing is on
+          if (settings.letterSpacing > 0 && (charCode === 0x20 || charCode === 0xA0)) {
+            const spaceSpan = document.createElement('span');
+            spaceSpan.className = 'otiyot-letter-block';
+            // Word gap = base space + scaled extra gap so words stay clearly separated
+            spaceSpan.style.display = 'inline-block';
+            spaceSpan.style.width = `${0.35 + settings.letterSpacing * 0.55}em`;
+            spaceSpan.textContent = '\u00A0';
+            fragment.appendChild(spaceSpan);
+          } else {
+            fragment.appendChild(document.createTextNode(char));
+          }
+          i++;
         }
       }
       if (textNode.parentNode) textNode.parentNode.replaceChild(fragment, textNode);
@@ -213,7 +257,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 6. READING FOCUS MODE (Integration Part)
+  // 7. READING FOCUS MODE
   // ---------------------------------------------------------------------------
   let _focusHandler = null, _focusMousedown = null, _focusBlur = null;
 
@@ -241,7 +285,6 @@
     const svgNS = 'http://www.w3.org/2000/svg';
     const clipSvg = document.createElementNS(svgNS, 'svg');
     clipSvg.id = 'otiyot-clip-svg';
-    // overflow:visible is REQUIRED — SVG is 0x0 but clip paths span the full viewport
     clipSvg.setAttribute('style', 'position:fixed;top:0;left:0;width:0;height:0;overflow:visible;pointer-events:none;z-index:2147483646');
     const clipPathEl = document.createElementNS(svgNS, 'clipPath');
     clipPathEl.id = 'otiyot-focus-clip';
@@ -257,7 +300,6 @@
       const rawRects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0 && r.bottom >= 0 && r.top <= H);
       if (rawRects.length === 0) return;
 
-      // Merge per-letter rects into one rect per line to avoid gaps between letters
       const lines = [];
       rawRects.forEach(r => {
         let merged = false;
@@ -300,7 +342,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 7. INITIALIZATION
+  // 8. INITIALIZATION
   // ---------------------------------------------------------------------------
 
   function stripOtiyotSpans() {
@@ -311,8 +353,6 @@
     document.normalize();
   }
 
-  // Debounced re-apply so rapid setting changes (e.g. dragging a slider) only
-  // trigger one full re-process after the user stops, not one per pixel moved.
   let _applyTimer = null;
   function scheduleApply() {
     clearTimeout(_applyTimer);
@@ -322,18 +362,15 @@
   function applyAll() {
     rebuildActiveNikud();
     applyVisualSettings();
-    observer.disconnect();   // pause so our DOM changes don't retrigger us
+    observer.disconnect();
     stripOtiyotSpans();
     processTextNodes(document.body);
     initFocusMode();
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  // Watch for new content added to the page (infinite scroll, SPA navigation etc.)
-  // Debounced so rapid DOM changes don't cause repeated expensive re-processing.
   let _observerTimer = null;
   const observer = new MutationObserver((mutations) => {
-    // Collect only newly-added element nodes — ignore attribute/text changes
     const added = [];
     mutations.forEach(m => m.addedNodes.forEach(n => {
       if (n.nodeType === Node.ELEMENT_NODE && !n.classList?.contains('otiyot-letter-block'))
@@ -352,13 +389,29 @@
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'OTIYOT_SETTINGS') {
         Object.assign(settings, msg.settings);
-        scheduleApply(); // debounced so slider drags don't lag
+        scheduleApply();
+      }
+      if (msg.type === 'OTIYOT_SITE_TOGGLE') {
+        if (msg.disabled) {
+          // Tear everything down immediately
+          observer.disconnect();
+          stripOtiyotSpans();
+          teardownFocusMode();
+          const styleEl = document.getElementById('otiyot-plus-style');
+          if (styleEl) styleEl.remove();
+        } else {
+          // Re-enable
+          applyAll();
+        }
       }
     });
 
     const nikudDefaults = {};
     Object.values(ALL_NIKUD).forEach(({ key }) => { nikudDefaults[key] = true; });
-    chrome.storage.sync.get({ ...settings, ...nikudDefaults }, (res) => {
+
+    chrome.storage.sync.get({ ...settings, ...nikudDefaults, disabledSites: [] }, (res) => {
+      // If this site is disabled, do nothing
+      if (res.disabledSites && res.disabledSites.includes(CURRENT_HOST)) return;
       Object.assign(settings, res);
       applyAll();
     });
