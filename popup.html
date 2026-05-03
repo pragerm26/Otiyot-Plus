@@ -412,6 +412,92 @@
       box-shadow: 0 0 0 5px rgba(41,171,226,0.25);
     }
 
+    /* ── Teacher / print tools ─────────────────────────────────────────────── */
+    .teacher-section {
+      margin: 0 14px 10px;
+    }
+    .teacher-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      margin-bottom: 7px;
+      padding-left: 2px;
+    }
+    .teacher-btns {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .teacher-btn {
+      flex: 1;
+      font-family: 'Rubik', sans-serif;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 9px 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 0.18s, box-shadow 0.18s;
+    }
+    .teacher-btn:hover {
+      border-color: rgba(41,171,226,0.45);
+      box-shadow: 0 0 0 3px rgba(41,171,226,0.07);
+    }
+    .tbtn-icon { font-size: 18px; flex-shrink: 0; }
+    .tbtn-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .tbtn-title { font-size: 11px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+    .tbtn-sub   { font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+
+    /* ── Site disable button ───────────────────────────────────────────────── */
+    .site-row {
+      margin: 0 14px 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #fffaf5;
+      border: 1px solid #f0d9b5;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      transition: border-color 0.2s;
+    }
+    .site-row:hover { border-color: #e8a96a; }
+    .site-icon {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      background: rgba(232,169,106,0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0;
+    }
+    .site-label { flex: 1; min-width: 0; }
+    .site-title { font-size: 11.5px; font-weight: 600; color: var(--ink); }
+    .site-host  { font-size: 10px; color: #b07030; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+    .site-hint  { font-size: 9.5px; color: var(--muted); margin-top: 2px; font-weight: 300; }
+    #siteToggleBtn {
+      font-family: 'Rubik', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 7px;
+      border: 1px solid #e8a96a;
+      background: transparent;
+      color: #b07030;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    #siteToggleBtn:hover { background: #e8a96a; color: #fff; border-color: #e8a96a; }
+    #siteToggleBtn.disabled {
+      border-color: var(--sky);
+      color: var(--sky);
+    }
+    #siteToggleBtn.disabled:hover { background: var(--sky); color: #fff; border-color: var(--sky); }
+
     /* ── Footer ────────────────────────────────────────────────────────────── */
     .footer {
       padding: 4px 16px 13px;
@@ -560,9 +646,45 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════════════════
+       SITE DISABLE
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="site-row">
+    <div class="site-icon">🔧</div>
+    <div class="site-label">
+      <div class="site-title">Site broken by extension?</div>
+      <div class="site-host" id="siteHost">—</div>
+      <div class="site-hint">Turn off Otiyot+ for this site only</div>
+    </div>
+    <button id="siteToggleBtn">Disable here</button>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       TEACHER TOOLS
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div class="teacher-section">
+    <div class="teacher-label">🖨️ For teachers &amp; printing</div>
+    <div class="teacher-btns">
+      <button class="teacher-btn" id="openPdfBtn">
+        <span class="tbtn-icon">📄</span>
+        <span class="tbtn-text">
+          <span class="tbtn-title">Colorize a PDF</span>
+          <span class="tbtn-sub">Upload → get print-ready PDF</span>
+        </span>
+      </button>
+      <button class="teacher-btn" id="openGdocsBtn">
+        <span class="tbtn-icon">📝</span>
+        <span class="tbtn-text">
+          <span class="tbtn-title">Apply to Google Doc</span>
+          <span class="tbtn-sub">Colors survive printing</span>
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
        FOOTER
   ══════════════════════════════════════════════════════════════════════ -->
-  <div class="footer">v1.1.0 &nbsp;·&nbsp; Developed by Mayer Prager &nbsp;·&nbsp; KoHack 2026</div>
+  <div class="footer">v1.1.5 &nbsp;·&nbsp; Developed by Mayer Prager &nbsp;·&nbsp; KoHack 2026</div>
 
   <script src="popup.js"></script>
 </body>
