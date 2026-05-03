@@ -1,7 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-  
-
   const NIKUD_LIST = [
     { char: '\u05B0', key: 'nikud_shva_na',   label: 'Shva Na',   color: '#cc0000' }, // deep red — voiced
     { char: '\u05B0', key: 'nikud_shva_nach',  label: 'Shva Nach', color: '#ff88aa' }, // pink — silent
@@ -142,4 +140,75 @@ document.addEventListener('DOMContentLoaded', () => {
     if (nikudPanel) nikudPanel.style.display = isVisible ? 'none' : 'block';
     if (nikudChevron) nikudChevron.textContent = isVisible ? '▼' : '▲';
   });
+
+  // ---------------------------------------------------------------------------
+  // TEACHER TOOLS BUTTONS
+  // ---------------------------------------------------------------------------
+  const openPdfBtn   = document.getElementById('openPdfBtn');
+  const openGdocsBtn = document.getElementById('openGdocsBtn');
+
+  if (openPdfBtn) openPdfBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('pdf-processor.html') });
+  });
+
+  if (openGdocsBtn) openGdocsBtn.addEventListener('click', () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const url = tabs[0]?.url || '';
+      if (url.includes('docs.google.com/document')) {
+        // Already on a Google Doc — just close the popup, the floating button is there
+        window.close();
+      } else {
+        // Open Google Docs
+        chrome.tabs.create({ url: 'https://docs.google.com' });
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // SITE DISABLE BUTTON
+  // ---------------------------------------------------------------------------
+  const siteToggleBtn = document.getElementById('siteToggleBtn');
+  const siteHostEl    = document.getElementById('siteHost');
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const url = tabs[0]?.url;
+    if (!url || !url.startsWith('http')) {
+      if (siteHostEl) siteHostEl.textContent = 'Not available here';
+      if (siteToggleBtn) siteToggleBtn.disabled = true;
+      return;
+    }
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (siteHostEl) siteHostEl.textContent = hostname;
+
+    chrome.storage.sync.get({ disabledSites: [] }, ({ disabledSites }) => {
+      updateSiteBtn(disabledSites.includes(hostname));
+
+      if (siteToggleBtn) siteToggleBtn.addEventListener('click', () => {
+        chrome.storage.sync.get({ disabledSites: [] }, ({ disabledSites }) => {
+          const nowDisabled = disabledSites.includes(hostname);
+          const updated = nowDisabled
+            ? disabledSites.filter(h => h !== hostname)
+            : [...disabledSites, hostname];
+          chrome.storage.sync.set({ disabledSites: updated }, () => {
+            updateSiteBtn(!nowDisabled);
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              if (tabs[0]?.id) {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                  type: 'OTIYOT_SITE_TOGGLE',
+                  disabled: !nowDisabled
+                }).catch(() => {});
+              }
+            });
+          });
+        });
+      });
+    });
+  });
+
+  function updateSiteBtn(isDisabled) {
+    if (!siteToggleBtn) return;
+    siteToggleBtn.textContent = isDisabled ? 'Enable here' : 'Disable here';
+    siteToggleBtn.classList.toggle('disabled', isDisabled);
+  }
+
 });
