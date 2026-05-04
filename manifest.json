@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Otiyot+",
   "short_name": "Otiyot+",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "description": "A Hebrew reading aid that color-codes niqqud, applies a dyslexia font, adds letter spacing, and includes a reading focus mode.",
 
   "permissions": ["storage", "tabs", "activeTab"],
@@ -44,12 +44,12 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "dyslexia-hebrew-extended.otf",
+        "fonts/dyslexia-hebrew-extended.otf",
         "pdf-processor.html",
         "pdf-processor.js",
-        "pdf.min.mjs",
-        "pdf.worker.min.mjs",
-        "pdf-lib.min.js"
+        "lib/pdf.min.mjs",
+        "lib/pdf.worker.min.mjs",
+        "lib/pdf-lib.min.js"
       ],
       "matches": ["<all_urls>"]
     }
