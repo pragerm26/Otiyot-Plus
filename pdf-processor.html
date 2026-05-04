@@ -6,17 +6,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --sky:    #29abe2;
-      --gold:   #e8b840;
-      --navy:   #0d2340;
-      --ink:    #1a2f4a;
-      --mist:   #f0f5fa;
-      --card:   #ffffff;
-      --border: #dde8f2;
-      --muted:  #7a9bb8;
-      --radius: 14px;
-      --green:  #34a853;
-      --red:    #e57373;
+      --sky:        #29abe2;
+      --gold:       #e8b840;
+      --navy:       #0d2340;
+      --ink:        #1a2f4a;
+      --mist:       #f0f5fa;
+      --card:       #ffffff;
+      --border:     #dde8f2;
+      --muted:      #7a9bb8;
+      --toggle-off: #c5d7e8;
+      --toggle-on:  #29abe2;
+      --radius:     14px;
+      --green:      #34a853;
+      --red:        #e57373;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -39,7 +41,7 @@
       align-items: center;
       gap: 14px;
       width: 100%;
-      max-width: 560px;
+      max-width: 600px;
       margin-bottom: 24px;
       position: relative;
       overflow: hidden;
@@ -59,9 +61,9 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 24px;
+      padding: 20px 24px;
       width: 100%;
-      max-width: 560px;
+      max-width: 600px;
       margin-bottom: 16px;
     }
     .card-title {
@@ -80,8 +82,177 @@
       font-size: 14px;
     }
     .icon-blue   { background: rgba(41,171,226,0.12); }
-    .icon-purple { background: rgba(155,81,224,0.12); }
     .icon-green  { background: rgba(52,168,83,0.12); }
+
+    /* Setting rows inside card */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .setting-row:last-of-type { border-bottom: none; }
+    .setting-row-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+    .si-palette { background: rgba(41,171,226,0.12); }
+    .si-font    { background: rgba(232,184,64,0.15); }
+    .si-space   { background: rgba(41,171,226,0.08); }
+    .setting-body { flex: 1; min-width: 0; }
+    .setting-title { font-size: 12.5px; font-weight: 500; color: var(--ink); }
+    .setting-sub   { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+    /* Toggle switch */
+    .switch {
+      position: relative;
+      width: 38px; height: 22px;
+      flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .track {
+      position: absolute;
+      inset: 0;
+      background: var(--toggle-off);
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.25s;
+    }
+    .track::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.25s cubic-bezier(.4,0,.2,1);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.22);
+    }
+    .switch input:checked + .track           { background: var(--toggle-on); }
+    .switch input:checked + .track::before   { transform: translateX(16px); }
+
+    /* Range slider */
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 17px; height: 17px;
+      border-radius: 50%;
+      background: var(--sky);
+      cursor: pointer;
+      box-shadow: 0 0 0 3px rgba(41,171,226,0.2);
+    }
+
+    /* Slider row within a setting */
+    .slider-wrap {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slider-val {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--sky);
+      white-space: nowrap;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* Expandable niqqud panel */
+    .expand-trigger {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 0 2px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--muted);
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+    }
+    .expand-trigger:hover { color: var(--ink); }
+    .expand-chevron { font-size: 9px; }
+
+    .nikud-panel {
+      display: none;
+      margin: 8px -24px -20px;
+      border-top: 1px solid var(--border);
+      border-radius: 0 0 var(--radius) var(--radius);
+      overflow: hidden;
+    }
+    .nikud-panel.open { display: block; }
+
+    .nikud-bulk {
+      display: flex;
+      gap: 6px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .bulk-btn {
+      flex: 1;
+      font-family: 'Rubik', sans-serif;
+      font-size: 10px;
+      font-weight: 500;
+      padding: 5px 0;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--mist);
+      color: var(--ink);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .bulk-btn:hover { background: var(--border); }
+    .bulk-btn.on  { border-color: var(--sky); color: var(--sky); }
+    .bulk-btn.off { border-color: var(--red); color: var(--red); }
+
+    .nikud-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .nikud-row:last-child { border-bottom: none; }
+    .nikud-swatch {
+      width: 10px; height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .nikud-char  { font-size: 16px; width: 28px; text-align: center; direction: rtl; line-height: 1.4; }
+    .nikud-label { flex: 1; font-size: 11px; color: var(--ink); }
+
+    /* Opacity sub-row */
+    .opacity-row {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .opacity-row-top {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-size: 10px;
+      color: var(--muted);
+      font-weight: 500;
+    }
 
     /* Drop zone */
     .drop-zone {
@@ -123,10 +294,7 @@
     .file-clear:hover { color: var(--red); background: rgba(229,115,115,0.1); }
 
     /* Progress */
-    .progress-wrap {
-      display: none;
-      margin-top: 16px;
-    }
+    .progress-wrap { display: none; margin-top: 16px; }
     .progress-wrap.visible { display: block; }
     .progress-label {
       font-size: 11px;
@@ -135,12 +303,7 @@
       display: flex;
       justify-content: space-between;
     }
-    .progress-bar-bg {
-      height: 6px;
-      background: var(--border);
-      border-radius: 99px;
-      overflow: hidden;
-    }
+    .progress-bar-bg { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; }
     .progress-bar-fill {
       height: 100%;
       background: linear-gradient(90deg, var(--sky), #5bc4f5);
@@ -148,12 +311,7 @@
       width: 0%;
       transition: width 0.3s ease;
     }
-    .progress-steps {
-      margin-top: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
+    .progress-steps { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
     .step {
       font-size: 11px;
       color: var(--muted);
@@ -163,11 +321,11 @@
       opacity: 0.4;
       transition: opacity 0.2s;
     }
-    .step.active   { opacity: 1; color: var(--sky); }
-    .step.done     { opacity: 1; color: var(--green); }
+    .step.active { opacity: 1; color: var(--sky); }
+    .step.done   { opacity: 1; color: var(--green); }
     .step-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
-    /* Action button */
+    /* Buttons */
     .btn {
       font-family: 'Rubik', sans-serif;
       font-size: 13px;
@@ -184,11 +342,23 @@
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn:not(:disabled):hover { opacity: 0.88; }
     .btn:not(:disabled):active { transform: scale(0.98); }
-    .btn-primary { background: var(--sky); color: #fff; width: 100%; justify-content: center; margin-top: 16px; }
+    .btn-primary  { background: var(--sky);   color: #fff; width: 100%; justify-content: center; margin-top: 16px; }
     .btn-download { background: var(--green); color: #fff; width: 100%; justify-content: center; margin-top: 12px; display: none; }
     .btn-download.visible { display: inline-flex; }
+    .btn-save {
+      background: rgba(41,171,226,0.1);
+      color: var(--sky);
+      border: 1px solid rgba(41,171,226,0.25);
+      font-size: 11px;
+      padding: 7px 14px;
+      border-radius: 8px;
+      margin-top: 14px;
+      width: 100%;
+      justify-content: center;
+    }
+    .btn-save:hover { background: rgba(41,171,226,0.18); }
 
-    /* Result card */
+    /* Result / Error */
     .result-card {
       display: none;
       background: rgba(52,168,83,0.06);
@@ -200,8 +370,6 @@
     .result-card.visible { display: block; }
     .result-title { font-size: 12px; font-weight: 600; color: var(--green); margin-bottom: 4px; }
     .result-sub   { font-size: 11px; color: var(--muted); }
-
-    /* Error */
     .error-msg {
       display: none;
       background: rgba(229,115,115,0.08);
@@ -214,28 +382,6 @@
     }
     .error-msg.visible { display: block; }
 
-    /* Settings summary */
-    .settings-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 4px;
-    }
-    .setting-pill {
-      font-size: 10px;
-      font-weight: 500;
-      padding: 3px 9px;
-      border-radius: 99px;
-      background: rgba(41,171,226,0.1);
-      color: var(--sky);
-      border: 1px solid rgba(41,171,226,0.2);
-    }
-    .setting-pill.off {
-      background: rgba(122,155,184,0.08);
-      color: var(--muted);
-      border-color: var(--border);
-    }
-
     /* Info note */
     .info-note {
       font-size: 10.5px;
@@ -247,6 +393,24 @@
       margin-top: 12px;
     }
     .info-note strong { color: var(--ink); }
+
+    /* Save confirmation toast */
+    .save-toast {
+      display: none;
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--navy);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 10px 18px;
+      border-radius: 99px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      z-index: 999;
+    }
+    .save-toast.visible { display: block; }
   </style>
 </head>
 <body>
@@ -259,21 +423,76 @@
   </div>
 </div>
 
-<!-- Active settings -->
+<!-- ══ EDITABLE PDF SETTINGS ══════════════════════════════════════════════ -->
 <div class="card">
-  <div class="card-title"><div class="icon icon-blue">⚙️</div> Current Otiyot+ Settings</div>
-  <div class="settings-row" id="settingsPills">
-    <span class="setting-pill" id="pillColor">🎨 Color Niqqud</span>
-    <span class="setting-pill" id="pillFont">א Dyslexia Font</span>
-    <span class="setting-pill" id="pillSpacing">↔ Letter Spacing</span>
+  <div class="card-title"><div class="icon icon-blue">⚙️</div> PDF Settings</div>
+
+  <!-- Color Niqqud -->
+  <div class="setting-row">
+    <div class="setting-row-icon si-palette">🎨</div>
+    <label class="setting-body" for="pdfColorToggle" style="cursor:pointer">
+      <div class="setting-title">Color Niqqud</div>
+      <div class="setting-sub">Highlight Hebrew vowel marks with colors</div>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="pdfColorToggle" checked>
+      <span class="track"></span>
+    </label>
   </div>
-  <div class="info-note" style="margin-top:10px">
-    The PDF will be rebuilt with these settings applied to all Hebrew text. 
-    <strong>Colors are embedded</strong> — they'll appear when printed on any printer.
+
+  <!-- Dyslexia Font -->
+  <div class="setting-row">
+    <div class="setting-row-icon si-font">א</div>
+    <label class="setting-body" for="pdfFontToggle" style="cursor:pointer">
+      <div class="setting-title">Dyslex-Kriyah Font</div>
+      <div class="setting-sub">Overlay Hebrew letters with dyslexia-friendly font</div>
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="pdfFontToggle">
+      <span class="track"></span>
+    </label>
   </div>
+
+  <!-- Letter Spacing -->
+  <div class="setting-row" style="flex-wrap:wrap">
+    <div class="setting-row-icon si-space">↔</div>
+    <div class="setting-body">
+      <div class="setting-title">Letter Spacing</div>
+      <div class="setting-sub">Extra space between Hebrew letters in output</div>
+      <div class="slider-wrap">
+        <input type="range" id="pdfSpacingRange" min="0" max="10" value="0" step="1">
+        <span class="slider-val" id="pdfSpacingVal">0 px</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Expand: per-vowel & opacity -->
+  <button class="expand-trigger" id="expandBtn">
+    <span class="expand-chevron" id="expandChevron">▲</span>
+    Pick which niqqud to highlight &amp; set opacity
+  </button>
+
+  <!-- Expandable niqqud panel (open by default so the per-niqqud controls are visible) -->
+  <div class="nikud-panel open" id="nikudPanel">
+    <div class="opacity-row">
+      <div class="opacity-row-top">
+        <span>Highlight Opacity</span>
+        <span id="pdfOpacityVal">55%</span>
+      </div>
+      <input type="range" id="pdfOpacityRange" min="10" max="100" value="55" step="5">
+    </div>
+    <div class="nikud-bulk">
+      <button class="bulk-btn on" id="bulkOn">All On</button>
+      <button class="bulk-btn off" id="bulkOff">All Off</button>
+    </div>
+    <!-- Per-vowel rows injected by pdf-processor.js -->
+    <div id="nikudRows"></div>
+  </div>
+
+  <button class="btn btn-save" id="saveSettingsBtn">💾 Save to Extension</button>
 </div>
 
-<!-- Upload -->
+<!-- ══ UPLOAD ═════════════════════════════════════════════════════════════ -->
 <div class="card">
   <div class="card-title"><div class="icon icon-blue">📤</div> Upload PDF</div>
 
@@ -304,12 +523,13 @@
       <div class="step" id="step2"><div class="step-dot"></div>Extracting Hebrew text</div>
       <div class="step" id="step3"><div class="step-dot"></div>Classifying niqqud</div>
       <div class="step" id="step4"><div class="step-dot"></div>Rebuilding with colors</div>
-      <div class="step" id="step5"><div class="step-dot"></div>Generating download</div>
+      <div class="step" id="step5"><div class="step-dot"></div>Applying font &amp; spacing</div>
+      <div class="step" id="step6"><div class="step-dot"></div>Generating download</div>
     </div>
   </div>
 
   <div class="result-card" id="resultCard">
-    <div class="result-title">✓ Done! Your colored PDF is ready.</div>
+    <div class="result-title">✓ Done! Your PDF is ready.</div>
     <div class="result-sub" id="resultSub">—</div>
   </div>
 
@@ -319,18 +539,27 @@
     🎨 Colorize &amp; Download PDF
   </button>
   <button class="btn btn-download" id="downloadBtn">
-    ⬇️ Download Colored PDF
+    ⬇️ Download PDF
   </button>
 </div>
 
-<div class="info-note" style="max-width:560px;width:100%">
-  <strong>How it works:</strong> Your PDF is processed entirely in your browser — nothing is uploaded to any server. 
-  The original layout, images, and formatting are preserved. Hebrew letters with niqqud get colored highlight 
-  backgrounds matching your Otiyot+ color scheme.
+<div class="info-note" style="max-width:600px;width:100%">
+  <strong>How it works:</strong> Your PDF is processed entirely in your browser — nothing is uploaded to any server.
+  The original layout, images, and formatting are preserved.
+  <strong>Color Niqqud</strong> adds colored highlight boxes behind Hebrew vowel marks.
+  <strong>Dyslexia Font</strong> overlays each Hebrew letter with the Dyslex-Kriyah typeface.
+  <strong>Letter Spacing</strong> repositions characters for easier reading.
 </div>
 
-<!-- Load pdf-lib as classic script (UMD), then bootstrap pdf.js as ES module -->
-<script src="pdf-lib.min.js"></script>
+<div class="save-toast" id="saveToast">✓ Settings saved to extension</div>
+
+<!--
+  fontkit must load BEFORE pdf-lib so we can call pdfDoc.registerFontkit()
+  to embed the dyslexia OTF. pdf-lib only ships with the 14 standard PDF
+  fonts; custom fonts require a fontkit instance.
+-->
+<script src="lib/fontkit.umd.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
 <script type="module" src="pdf-processor.js"></script>
 </body>
 </html>
