@@ -468,12 +468,12 @@
 
   <!-- Expand: per-vowel & opacity -->
   <button class="expand-trigger" id="expandBtn">
-    <span class="expand-chevron" id="expandChevron">▼</span>
-    Customize colors &amp; opacity
+    <span class="expand-chevron" id="expandChevron">▲</span>
+    Pick which niqqud to highlight &amp; set opacity
   </button>
 
-  <!-- Expandable niqqud panel -->
-  <div class="nikud-panel" id="nikudPanel">
+  <!-- Expandable niqqud panel (open by default so the per-niqqud controls are visible) -->
+  <div class="nikud-panel open" id="nikudPanel">
     <div class="opacity-row">
       <div class="opacity-row-top">
         <span>Highlight Opacity</span>
@@ -553,6 +553,12 @@
 
 <div class="save-toast" id="saveToast">✓ Settings saved to extension</div>
 
+<!--
+  fontkit must load BEFORE pdf-lib so we can call pdfDoc.registerFontkit()
+  to embed the dyslexia OTF. pdf-lib only ships with the 14 standard PDF
+  fonts; custom fonts require a fontkit instance.
+-->
+<script src="lib/fontkit.umd.min.js"></script>
 <script src="lib/pdf-lib.min.js"></script>
 <script type="module" src="pdf-processor.js"></script>
 </body>

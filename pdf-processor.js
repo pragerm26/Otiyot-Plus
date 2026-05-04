@@ -463,11 +463,21 @@ async function processPdf(file) {
 
   // Apply dyslexia font overlay
   setProgress(82, 'Applying dyslexia font…', 4);
+  let fontApplied = false;
+  let fontWarning = null;
   if (settings.fontEnabled && fontLetters.length > 0) {
-    try {
+    // pdf-lib only supports the 14 standard PDF fonts out of the box.
+    // For any custom OTF/TTF we must register a fontkit instance first,
+    // otherwise embedFont() throws and the feature silently fails.
+    if (!window.fontkit) {
+      fontWarning = 'Dyslexia font skipped: fontkit library not loaded. ' +
+                    'Place lib/fontkit.umd.min.js in the extension folder and reload.';
+      console.warn(fontWarning);
+    } else try {
+      existingDoc.registerFontkit(window.fontkit);
       const fontUrl   = chrome.runtime.getURL('fonts/dyslexia-hebrew-extended.otf');
       const fontBytes = await fetch(fontUrl).then(r => r.arrayBuffer());
-      const dyslexiaFont = await existingDoc.embedFont(fontBytes);
+      const dyslexiaFont = await existingDoc.embedFont(fontBytes, { subset: true });
 
       for (let pi = 0; pi < pages.length; pi++) {
         const page        = pages[pi];
@@ -491,8 +501,10 @@ async function processPdf(file) {
           } catch { /* skip individual glyph failures */ }
         }
       }
+      fontApplied = true;
     } catch (fontErr) {
-      console.warn('Dyslexia font overlay failed:', fontErr);
+      fontWarning = 'Dyslexia font failed to embed: ' + (fontErr.message || String(fontErr));
+      console.warn(fontWarning);
     }
   }
 
@@ -509,9 +521,15 @@ async function processPdf(file) {
 
   const feats = [];
   if (settings.colorNekudot) feats.push(`${highlights.length} niqqud highlighted`);
-  if (settings.fontEnabled)  feats.push('dyslexia font applied');
+  if (settings.fontEnabled && fontApplied)  feats.push('dyslexia font applied');
   if (settings.letterSpacing > 0) feats.push(`+${settings.letterSpacing}px spacing`);
   resultSub.textContent = `${numPages} page${numPages > 1 ? 's' : ''} · ${feats.join(' · ') || 'no features active'} · Ready to print`;
+
+  // If the user asked for the dyslexia font but we couldn't apply it,
+  // tell them — don't let the toggle silently no-op.
+  if (settings.fontEnabled && !fontApplied) {
+    showError(fontWarning || 'Dyslexia font could not be applied to this PDF.');
+  }
 
   downloadBtn.classList.add('visible');
   processBtn.disabled = false;
