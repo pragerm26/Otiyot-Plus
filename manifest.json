@@ -43,7 +43,8 @@
         "pdf-processor.js",
         "lib/pdf.min.mjs",
         "lib/pdf.worker.min.mjs",
-        "lib/pdf-lib.min.js"
+        "lib/pdf-lib.min.js",
+        "lib/fontkit.umd.min.js"
       ],
       "matches": ["<all_urls>"]
     }

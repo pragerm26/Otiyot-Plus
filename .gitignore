@@ -1,0 +1,12 @@
+# Vendored at build time by .github/workflows/{release,nightly}.yml.
+# Drop a copy here manually for local dev:
+#   curl -sSL https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js \
+#     -o lib/fontkit.umd.min.js
+lib/fontkit.umd.min.js
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

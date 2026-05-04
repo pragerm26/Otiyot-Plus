@@ -553,6 +553,12 @@
 
 <div class="save-toast" id="saveToast">✓ Settings saved to extension</div>
 
+<!--
+  fontkit must load BEFORE pdf-lib so we can call pdfDoc.registerFontkit()
+  to embed the dyslexia OTF. pdf-lib only ships with the 14 standard PDF
+  fonts; custom fonts require a fontkit instance.
+-->
+<script src="lib/fontkit.umd.min.js"></script>
 <script src="lib/pdf-lib.min.js"></script>
 <script type="module" src="pdf-processor.js"></script>
 </body>

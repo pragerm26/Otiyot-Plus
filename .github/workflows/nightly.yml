@@ -28,6 +28,14 @@ jobs:
           echo "SHA=$SHORT_SHA"            >> "$GITHUB_OUTPUT"
           echo "ZIP_NAME=otiyot-plus-nightly-${DATE}.zip" >> "$GITHUB_OUTPUT"
 
+      # Vendor fontkit at build time (required by pdf-lib for custom OTF embedding)
+      - name: Vendor fontkit
+        run: |
+          curl -sSL --fail \
+            -o lib/fontkit.umd.min.js \
+            https://unpkg.com/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js
+          test -s lib/fontkit.umd.min.js
+
       - name: Build extension zip
         run: |
           ZIP_NAME="${{ steps.info.outputs.ZIP_NAME }}"
