@@ -1,0 +1,91 @@
+name: Release
+
+# Trigger: push a version tag such as v1.2.0
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Extract the version number from the tag (strips the leading "v")
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Verify the manifest version matches the tag
+      - name: Verify manifest version
+        run: |
+          MANIFEST_VERSION=$(jq -r '.version' manifest.json)
+          TAG_VERSION="${{ steps.version.outputs.VERSION }}"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::manifest.json version ($MANIFEST_VERSION) does not match tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version check passed: $MANIFEST_VERSION"
+
+      # Build the distributable zip (only extension files, no dev/repo cruft)
+      - name: Build extension zip
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ZIP_NAME="otiyot-plus-v${VERSION}.zip"
+
+          zip -r "$ZIP_NAME" \
+            manifest.json \
+            popup.html \
+            popup.js \
+            content.js \
+            pdf-processor.html \
+            pdf-processor.js \
+            icons/ \
+            lib/ \
+            fonts/
+
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+          echo "Built $ZIP_NAME ($(du -sh $ZIP_NAME | cut -f1))"
+
+      # Extract release notes for this version from CHANGELOG.md
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Pull the block between this version header and the next one
+          NOTES=$(awk "/^## \[${VERSION}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
+          if [ -z "$NOTES" ]; then
+            NOTES="See [CHANGELOG.md](./CHANGELOG.md) for details."
+          fi
+          # Preserve newlines for the release body
+          {
+            echo "NOTES<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Otiyot+ v${{ steps.version.outputs.VERSION }}"
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## Otiyot+ v${{ steps.version.outputs.VERSION }}
+
+            ${{ steps.changelog.outputs.NOTES }}
+
+            ---
+            ### Install
+            1. Download `${{ env.ZIP_NAME }}` below
+            2. Unzip anywhere on your computer
+            3. Open Chrome → `chrome://extensions` → Enable **Developer mode**
+            4. Click **Load unpacked** and select the unzipped folder
+          files: ${{ env.ZIP_NAME }}
+          draft: false
+          prerelease: false
