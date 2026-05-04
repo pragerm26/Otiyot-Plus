@@ -32,12 +32,6 @@
       "matches": ["<all_urls>"],
       "run_at": "document_end",
       "all_frames": true
-    },
-    {
-      "js": ["gdocs-content.js"],
-      "matches": ["https://docs.google.com/document/*"],
-      "run_at": "document_end",
-      "all_frames": false
     }
   ],
 
