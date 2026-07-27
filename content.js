@@ -100,7 +100,7 @@
     }
 
     let fontUrl = '';
-    try { fontUrl = chrome.runtime.getURL('fonts/dyslexia-hebrew-extended.otf'); } catch (e) { return; }
+    try { fontUrl = chrome.runtime.getURL('dyslexia-hebrew-extended.otf'); } catch (e) { return; }
 
     const fontFace = `@font-face { font-family: 'DyslexiaHebrew'; src: url('${fontUrl}') format('opentype'); unicode-range: U+05D0-05EA, U+05B0-05BD, U+05BF, U+05C1-05C2, U+05C4-05C5, U+05C7, U+FB1D-FB4E; }`;
 
@@ -191,7 +191,6 @@
     targets.forEach(textNode => {
       const text = textNode.nodeValue;
       if (!/[\u05D0-\u05EA]/.test(text)) return;
-      // Safety: skip if parent is no longer in the document
       if (!textNode.parentNode || !document.contains(textNode.parentNode)) return;
 
       const fragment = document.createDocumentFragment();
@@ -200,48 +199,89 @@
       while (i < text.length) {
         const char = text[i], charCode = char.charCodeAt(0);
         if (isHebrewLetter(charCode)) {
-          let diacritics = '', rawNikud = null, j = i + 1;
-          while (j < text.length) {
-            const nc = text.charCodeAt(j);
-            if (ALL_NIKUD_SET.has(text[j]) || isCantillation(nc) || isLetterModifier(nc)) {
-              if (ALL_NIKUD_SET.has(text[j]) && rawNikud === null) rawNikud = text[j];
-              diacritics += text[j]; j++;
-            } else break;
-          }
+          // Collect the whole Hebrew word first, then wrap it in a nowrap container.
+          // This prevents letter-spacing \u200B chars from creating mid-word line breaks.
+          const wordStart = i;
+          const wordLetters = []; // [{char+diacritics, rawNikud, colourKey}]
 
-          let colourKey = null;
-          if (rawNikud === SHVA_CHAR) {
-            colourKey = classifyShva(text, i, diacritics, prevDominantNikud);
-          } else if (rawNikud) {
-            colourKey = rawNikud;
-          }
+          while (i < text.length) {
+            const ch = text[i], cp = ch.charCodeAt(0);
+            if (!isHebrewLetter(cp)) break;
 
-          prevWasShva = (rawNikud === SHVA_CHAR);
-          prevDominantNikud = rawNikud;
-
-          const span = document.createElement('span');
-          span.className = 'otiyot-letter-block';
-          const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
-          if (settings.colorNekudot && color) {
-            const rgba = hexToRgba(color, settings.highlightOpacity);
-            if (settings.highlightMode === 'nikud') {
-              span.setAttribute('data-letter', char);
-              span.setAttribute('data-nikud', diacritics);
-              span.style.setProperty('--otiyot-nikud-color', rgba);
-            } else {
-              span.style.backgroundColor = rgba;
+            let diacritics = '', rawNikud = null, j = i + 1;
+            while (j < text.length) {
+              const nc = text.charCodeAt(j);
+              if (ALL_NIKUD_SET.has(text[j]) || isCantillation(nc) || isLetterModifier(nc)) {
+                if (ALL_NIKUD_SET.has(text[j]) && rawNikud === null) rawNikud = text[j];
+                diacritics += text[j]; j++;
+              } else break;
             }
+
+            let colourKey = null;
+            if (rawNikud === SHVA_CHAR) {
+              colourKey = classifyShva(text, i, diacritics, prevDominantNikud);
+            } else if (rawNikud) {
+              colourKey = rawNikud;
+            }
+
+            prevWasShva = (rawNikud === SHVA_CHAR);
+            prevDominantNikud = rawNikud;
+            wordLetters.push({ slice: ch + diacritics, colourKey });
+            i = j;
           }
-          span.textContent = char + diacritics;
-          fragment.appendChild(span);
-          if (settings.letterSpacing > 0) fragment.appendChild(document.createTextNode('\u200B'));
-          i = j;
+
+          // Build the word — either plain (no spacing) or wrapped in nowrap (with spacing)
+          if (settings.letterSpacing > 0 && wordLetters.length > 1) {
+            // Wrap word in inline-block nowrap so it never breaks mid-word
+            const wordWrap = document.createElement('span');
+            wordWrap.style.cssText = 'display:inline-block;white-space:nowrap;';
+            wordLetters.forEach(({ slice, colourKey }, idx) => {
+              const span = document.createElement('span');
+              span.className = 'otiyot-letter-block';
+              const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
+              if (settings.colorNekudot && color) {
+                const rgba = hexToRgba(color, settings.highlightOpacity);
+                if (settings.highlightMode === 'nikud') {
+                  span.setAttribute('data-letter', slice[0]);
+                  span.setAttribute('data-nikud', slice.slice(1));
+                  span.style.setProperty('--otiyot-nikud-color', rgba);
+                } else {
+                  span.style.backgroundColor = rgba;
+                }
+              }
+              span.textContent = slice;
+              wordWrap.appendChild(span);
+              if (idx < wordLetters.length - 1) {
+                wordWrap.appendChild(document.createTextNode('\u200B'));
+              }
+            });
+            fragment.appendChild(wordWrap);
+          } else {
+            // No spacing — append spans directly with no wrap container needed
+            wordLetters.forEach(({ slice, colourKey }) => {
+              const span = document.createElement('span');
+              span.className = 'otiyot-letter-block';
+              const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
+              if (settings.colorNekudot && color) {
+                const rgba = hexToRgba(color, settings.highlightOpacity);
+                if (settings.highlightMode === 'nikud') {
+                  span.setAttribute('data-letter', slice[0]);
+                  span.setAttribute('data-nikud', slice.slice(1));
+                  span.style.setProperty('--otiyot-nikud-color', rgba);
+                } else {
+                  span.style.backgroundColor = rgba;
+                }
+              }
+              span.textContent = slice;
+              fragment.appendChild(span);
+            });
+          }
+
         } else {
           // For spaces between Hebrew words, inject extra visual gap when letter spacing is on
           if (settings.letterSpacing > 0 && (charCode === 0x20 || charCode === 0xA0)) {
             const spaceSpan = document.createElement('span');
             spaceSpan.className = 'otiyot-letter-block';
-            // Word gap = base space + scaled extra gap so words stay clearly separated
             spaceSpan.style.display = 'inline-block';
             spaceSpan.style.width = `${0.35 + settings.letterSpacing * 0.55}em`;
             spaceSpan.textContent = '\u00A0';
