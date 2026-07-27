@@ -3,7 +3,8 @@
 
 import * as pdfjsLib from './lib/pdf.min.mjs';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.mjs');
+const _wu = chrome.runtime.getURL('lib/pdf.worker.min.mjs');
+pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([`import '${_wu}';`], {type:'application/javascript'}));
 
 // ---------------------------------------------------------------------------
 // NIQQUD CONFIG
@@ -356,78 +357,162 @@ async function processPdf(file) {
       }
     }
 
-    // Group into lines
+    // 4pt bucket — keeps cantillation marks (1-2pt off baseline) in same line bucket.
+    // Adjacent lines are always ≥14pt apart so no risk of merging real lines.
     const lineMap = new Map();
     for (const c of allChars) {
-      const lineKey = Math.round(c.y / 2) * 2;
+      const lineKey = Math.floor(c.y / 4) * 4;
       if (!lineMap.has(lineKey)) lineMap.set(lineKey, []);
       lineMap.get(lineKey).push(c);
     }
 
-    for (const [, lineChars] of lineMap) {
+    // Measure actual gaps between lines for word-wrap line height
+    const lineKeys = Array.from(lineMap.keys()).sort((a, b) => b - a);
+    const lineGapMap = new Map();
+    for (let i = 0; i < lineKeys.length - 1; i++) {
+      lineGapMap.set(lineKeys[i], lineKeys[i] - lineKeys[i + 1]);
+    }
+    if (lineKeys.length > 1) {
+      lineGapMap.set(lineKeys[lineKeys.length - 1],
+        lineGapMap.get(lineKeys[lineKeys.length - 2]));
+    }
+
+    for (const [lineKey, lineChars] of lineMap) {
       const letters    = lineChars.filter(c => c.isHebrew);
       const nikudChars = lineChars.filter(c => c.isNikud && ALL_NIKUD.has(c.char));
 
       if (letters.length === 0) continue;
 
+      // Associate niqqud with letters using x-overlap (same approach as content.js).
+      // Niqqud x0 always falls inside its letter's x0..x1 range in the PDF stream.
       const letterNikudMap = new Map();
       for (const nk of nikudChars) {
-        const nkX = (nk.x0 + nk.x1) / 2 || nk.x0;
+        const cp = nk.cp;
+        if (cp === 0x05BD || cp === 0x05BE) continue; // skip meteg/maqaf
+        const nkX = nk.x0;
         let bestIdx = -1, bestDist = Infinity;
         for (let li = 0; li < letters.length; li++) {
-          const ltr    = letters[li];
-          const ltrCenter = (ltr.x0 + ltr.x1) / 2;
-          const dist   = Math.abs(nkX - ltrCenter);
-          const inBounds = nkX >= ltr.x0 - 3 && nkX <= ltr.x1 + 3;
-          if (dist < bestDist || inBounds) { bestDist = dist; bestIdx = li; }
+          const ltr = letters[li];
+          if (nkX >= ltr.x0 - 1 && nkX <= ltr.x1 + 1) {
+            const dist = Math.abs(nkX - (ltr.x0 + ltr.x1) / 2);
+            if (dist < bestDist) { bestDist = dist; bestIdx = li; }
+          }
         }
-        if (bestIdx >= 0 && bestDist < 15) {
+        if (bestIdx < 0) { // fallback: closest within 8px
+          for (let li = 0; li < letters.length; li++) {
+            const dist = Math.abs(nk.x0 - (letters[li].x0 + letters[li].x1) / 2);
+            if (dist < bestDist && dist < 8) { bestDist = dist; bestIdx = li; }
+          }
+        }
+        if (bestIdx >= 0) {
           if (!letterNikudMap.has(bestIdx)) letterNikudMap.set(bestIdx, []);
           letterNikudMap.get(bestIdx).push(nk);
         }
       }
 
       let prevNikud = null;
-      const letterObjects = letters.map((l, i) => ({ ...l, isSpace: false, index: i }));
+      const letterObjects = letters.map((l, i) => ({ ...l, index: i }));
 
-      const spacing    = settings.letterSpacing || 0;
-      let xOffset      = 0; // cumulative letter-spacing offset
+      // Spacing only works when font overlay is on (we redraw at new positions).
+      const spacing = (settings.fontEnabled && settings.letterSpacing > 0)
+        ? settings.letterSpacing : 0;
 
-      for (let li = 0; li < letterObjects.length; li++) {
-        const letter  = letterObjects[li];
-        const nkList  = letterNikudMap.get(li) || [];
-        const vowels  = nkList.filter(nk => nk.cp >= 0x05B0 && nk.cp <= 0x05C7);
-
+      // Helper: resolve primary vowel color for a letter
+      function resolveColor(li) {
+        const nkList = letterNikudMap.get(li) || [];
+        const vowels = nkList.filter(nk => nk.cp >= 0x05B0 && nk.cp <= 0x05BC);
         let primaryNikud = null;
         for (const nk of vowels) {
-          if (ALL_NIKUD.has(nk.char)) { primaryNikud = nk.char; break; }
+          const testKey = nk.char === SHVA_CHAR ? null
+                        : HATAF_MAP[nk.char] ? HATAF_MAP[nk.char] : nk.char;
+          if (testKey && NIKUD_COLORS[testKey]) { primaryNikud = nk.char; break; }
+          if (nk.char === SHVA_CHAR) { primaryNikud = nk.char; break; }
         }
-
         const color = getColor(primaryNikud, li, letterObjects, prevNikud, settings);
         if (primaryNikud) prevNikud = primaryNikud;
+        return color;
+      }
 
-        // Apply letter spacing: shift each letter right by cumulative offset
-        const adjustedX0 = letter.x0 + xOffset;
-        const adjustedX1 = letter.x1 + xOffset;
-        if (spacing > 0 && li > 0) xOffset += spacing;
-
-        if (color) {
-          const { r, g, b } = hexToRgb(color);
-          const h = letter.fontSize * 1.2;
-          const y = letter.y - letter.fontSize * 0.25;
-          const w = Math.max(adjustedX1 - adjustedX0, 4);
-          highlights.push({ page: pi, x: adjustedX0, y, w, h, r, g, b });
+      if (spacing === 0) {
+        // ── No spacing: highlights at original positions ─────────────────────
+        for (let li = 0; li < letterObjects.length; li++) {
+          const letter = letterObjects[li];
+          const color  = resolveColor(li);
+          if (color) {
+            const { r, g, b } = hexToRgb(color);
+            highlights.push({ page: pi,
+              x: letter.x0, y: letter.y - letter.fontSize * 0.15,
+              w: Math.max(letter.x1 - letter.x0, 4), h: letter.fontSize * 1.05,
+              r, g, b });
+          }
+          if (settings.fontEnabled) {
+            fontLetters.push({ page: pi, x: letter.x0, y: letter.y,
+              fontSize: letter.fontSize, char: letter.char,
+              origW: letter.x1 - letter.x0 });
+          }
         }
 
-        // Collect letter positions for dyslexia font overlay
-        if (settings.fontEnabled) {
-          fontLetters.push({
-            page:     pi,
-            x:        adjustedX0,
-            y:        letter.y,
-            fontSize: letter.fontSize,
-            char:     letter.char,
-          });
+      } else {
+        // ── Spacing ON: word-aware RTL wrap (mirrors content.js word grouping) ─
+        // Sort visually right→left for RTL
+        const sorted = [...letterObjects].sort((a, b) => b.x1 - a.x1);
+
+        // Group into words by detecting inter-word gaps (same idea as content.js
+        // detecting non-Hebrew chars between words)
+        const wordThresh = letters[0].fontSize * 0.6;
+        const words = [];
+        let cur = [];
+        for (let i = 0; i < sorted.length; i++) {
+          if (i === 0) { cur.push(sorted[i]); continue; }
+          if (sorted[i-1].x0 - sorted[i].x1 > wordThresh) { words.push(cur); cur = [sorted[i]]; }
+          else cur.push(sorted[i]);
+        }
+        if (cur.length) words.push(cur);
+
+        const lineX0 = Math.min(...letters.map(l => l.x0));
+        const lineX1 = Math.max(...letters.map(l => l.x1));
+        const lineY  = letters[0].y;
+        const lineH  = letters[0].fontSize;
+        const measuredGap = lineGapMap.get(lineKey) || lineH * 1.5;
+        const lineGap = Math.min(measuredGap * 0.85, lineH * 1.4);
+        const wordGap = lineH * 0.35;
+
+        let cursorX = lineX1, curLine = 0, firstWord = true;
+
+        for (const word of words) {
+          // Width of this word WITH spacing applied between its letters
+          const wordW = word.reduce((s, l) => s + (l.x1 - l.x0), 0)
+                      + spacing * Math.max(word.length - 1, 0);
+
+          // Keep whole word on one line — if it doesn't fit, wrap the WHOLE word
+          if (!firstWord && cursorX - wordW < lineX0) {
+            curLine++;
+            cursorX = lineX1;
+            firstWord = true;
+          }
+
+          // Place letters right→left within the word
+          let lc = cursorX;
+          for (const letter of word) {
+            const origW = letter.x1 - letter.x0;
+            const lx0   = lc - origW;
+            const ly    = lineY - curLine * lineGap;
+            const color = resolveColor(letter.index);
+            if (color) {
+              const { r, g, b } = hexToRgb(color);
+              highlights.push({ page: pi,
+                x: lx0, y: ly - lineH * 0.15,
+                w: Math.max(origW, 4), h: lineH * 1.05,
+                r, g, b });
+            }
+            if (settings.fontEnabled) {
+              fontLetters.push({ page: pi, x: lx0, y: ly,
+                fontSize: lineH, char: letter.char, origW });
+            }
+            lc -= origW + spacing;
+          }
+          cursorX = lc - wordGap;
+          firstWord = false;
         }
       }
     }
@@ -475,31 +560,55 @@ async function processPdf(file) {
       console.warn(fontWarning);
     } else try {
       existingDoc.registerFontkit(window.fontkit);
-      const fontUrl   = chrome.runtime.getURL('fonts/dyslexia-hebrew-extended.otf');
+      const fontUrl   = chrome.runtime.getURL('dyslexia-hebrew-extended.otf');
       const fontBytes = await fetch(fontUrl).then(r => r.arrayBuffer());
       const dyslexiaFont = await existingDoc.embedFont(fontBytes, { subset: true });
 
       for (let pi = 0; pi < pages.length; pi++) {
         const page        = pages[pi];
-        const { height }  = page.getSize();
         const pageLetters = fontLetters.filter(l => l.page === pi);
 
-        for (const ltr of pageLetters) {
-          try {
-            // Cover original glyph with a white rectangle, then draw with dyslexia font
-            const w = Math.max(ltr.fontSize * 0.7, 4);
-            const h = ltr.fontSize * 1.3;
-            const y = ltr.y - ltr.fontSize * 0.25;
-            page.drawRectangle({ x: ltr.x, y, width: w, height: h, color: rgb(1, 1, 1), opacity: 1 });
-            page.drawText(ltr.char, {
-              x:    ltr.x,
-              y:    ltr.y,
-              size: ltr.fontSize,
-              font: dyslexiaFont,
-              color: rgb(0, 0, 0),
-            });
-          } catch { /* skip individual glyph failures */ }
+        // FB precomposed → base letter for drawText
+        function baseChar(ch) {
+          const cp = ch.codePointAt(0);
+          if (cp < 0xFB1D || cp > 0xFB4E) return ch;
+          const d = {0xFB1D:'\u05D9',0xFB2A:'\u05E9',0xFB2B:'\u05E9',0xFB2C:'\u05E9',
+            0xFB2D:'\u05E9',0xFB2E:'\u05D0',0xFB2F:'\u05D0',0xFB30:'\u05D0',
+            0xFB31:'\u05D1',0xFB32:'\u05D2',0xFB33:'\u05D3',0xFB34:'\u05D4',
+            0xFB35:'\u05D5',0xFB36:'\u05D6',0xFB38:'\u05D8',0xFB39:'\u05D9',
+            0xFB3A:'\u05DA',0xFB3B:'\u05DB',0xFB3C:'\u05DC',0xFB3E:'\u05DE',
+            0xFB40:'\u05E0',0xFB41:'\u05E1',0xFB43:'\u05E3',0xFB44:'\u05E4',
+            0xFB46:'\u05E6',0xFB47:'\u05E7',0xFB48:'\u05E8',0xFB49:'\u05E9',
+            0xFB4A:'\u05EA',0xFB4B:'\u05D5',0xFB4C:'\u05D1',0xFB4D:'\u05DB',0xFB4E:'\u05E4',
+          };
+          return d[cp] || ch;
         }
+
+        // Only process letters the font can render
+        const renderable = pageLetters.filter(ltr => {
+          try { return dyslexiaFont.widthOfTextAtSize(baseChar(ltr.char), ltr.fontSize) > 0; }
+          catch { return false; }
+        });
+
+        // Pass 1: white out originals using actual letter width
+        for (const ltr of renderable) {
+          const w = Math.max(ltr.origW || (ltr.fontSize * 0.65), 3);
+          const h = ltr.fontSize * 1.4;
+          const y = ltr.y - ltr.fontSize * 0.3;
+          try { page.drawRectangle({ x: ltr.x, y, width: w, height: h, color: rgb(1,1,1), opacity:1 }); }
+          catch {}
+        }
+
+        // Pass 2: draw new glyphs
+        for (const ltr of renderable) {
+          try {
+            page.drawText(baseChar(ltr.char), {
+              x: ltr.x, y: ltr.y, size: ltr.fontSize,
+              font: dyslexiaFont, color: rgb(0,0,0),
+            });
+          } catch {}
+        }
+        setProgress(82 + Math.round(((pi+1)/pages.length)*8), 'Drawing font…', 4);
       }
       fontApplied = true;
     } catch (fontErr) {
