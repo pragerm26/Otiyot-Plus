@@ -303,11 +303,82 @@
     .nikud-row:last-child { border-bottom: none; }
 
     .nikud-swatch {
-      width: 10px; height: 10px;
-      border-radius: 3px;
+      width: 16px; height: 16px;
+      padding: 0;
+      border-radius: 4px;
       flex-shrink: 0;
-      border: 1px solid rgba(0,0,0,0.08);
+      border: 1px solid rgba(0,0,0,0.15);
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
     }
+    .nikud-swatch:hover { transform: scale(1.15); box-shadow: 0 0 0 3px rgba(41,171,226,0.25); }
+    .nikud-swatch:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+
+    /* ── Colour picker popup (opens when a swatch is clicked) ──────────────── */
+    .cp-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(13,35,64,0.45);
+      z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    .cp-overlay.open { display: flex; }
+    .cp-card {
+      width: 244px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(13,35,64,0.35);
+      padding: 12px;
+    }
+    .cp-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+    .cp-preview {
+      width: 34px; height: 34px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; direction: rtl; border: 1px solid var(--border);
+    }
+    .cp-title { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+    .cp-close {
+      border: none; background: none; cursor: pointer;
+      font-size: 14px; color: var(--muted); padding: 2px 6px; border-radius: 6px;
+    }
+    .cp-close:hover { color: var(--ink); background: var(--mist); }
+    .cp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+    .cp-chip {
+      aspect-ratio: 1; border-radius: 7px; cursor: pointer; padding: 0;
+      border: 1px solid rgba(0,0,0,0.12);
+      transition: transform 0.1s;
+    }
+    .cp-chip:hover { transform: scale(1.12); }
+    .cp-chip.selected { outline: 2px solid var(--ink); outline-offset: 1px; }
+    .cp-hexrow { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+    .cp-hexrow label { font-size: 10px; font-weight: 500; color: var(--muted); }
+    .cp-hex {
+      flex: 1; min-width: 0;
+      font-family: 'Rubik', monospace; font-size: 12px; text-transform: uppercase;
+      padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px;
+      color: var(--ink); background: var(--mist); outline: none;
+    }
+    .cp-hex:focus { border-color: var(--sky); }
+    .cp-hex.invalid { border-color: #e57373; }
+    .cp-actions { display: flex; gap: 6px; margin-top: 10px; }
+    .cp-btn {
+      flex: 1; font-family: 'Rubik', sans-serif; font-size: 10px; font-weight: 600;
+      padding: 7px 0; border-radius: 7px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--mist); color: var(--ink);
+      transition: background 0.15s;
+    }
+    .cp-btn:hover { background: var(--border); }
+    .cp-btn.primary { background: var(--sky); border-color: var(--sky); color: #fff; }
+    .cp-btn.primary:hover { opacity: 0.88; background: var(--sky); }
+    .cp-btn.reset { border-color: #e57373; color: #e57373; background: transparent; }
+    .cp-btn.reset:hover { background: rgba(229,115,115,0.1); }
+    .cp-resetall {
+      display: block; width: 100%; margin-top: 8px; border: none; background: none;
+      font-family: 'Rubik', sans-serif; font-size: 10px; color: var(--muted);
+      cursor: pointer; text-decoration: underline;
+    }
+    .cp-resetall:hover { color: var(--ink); }
     .nikud-char {
       font-size: 16px;
       width: 28px;
@@ -555,16 +626,16 @@
            title="Click to customise individual niqqud colours">
         <div class="nikud-strip">
           <!-- One dot per vowel — order matches NIKUD_LIST in popup.js -->
-          <div class="nikud-dot" style="background:#cc0000"></div> <!-- Shva Na   -->
-          <div class="nikud-dot" style="background:#ff88aa"></div> <!-- Shva Nach -->
-          <div class="nikud-dot" style="background:#ff9900"></div> <!-- Hiriq     -->
-          <div class="nikud-dot" style="background:#cccc00"></div> <!-- Tsere     -->
-          <div class="nikud-dot" style="background:#00cc00"></div> <!-- Segol     -->
-          <div class="nikud-dot" style="background:#6aa84f"></div> <!-- Patach    -->
-          <div class="nikud-dot" style="background:#6fa8dc"></div> <!-- Kamatz    -->
-          <div class="nikud-dot" style="background:#0000ff"></div> <!-- Holam     -->
-          <div class="nikud-dot" style="background:#9900ff"></div> <!-- Kubutz    -->
-          <div class="nikud-dot" style="background:#ff00ff"></div> <!-- Dagesh    -->
+          <div class="nikud-dot" data-key="nikud_shva_na" style="background:#cc0000"></div> <!-- Shva Na   -->
+          <div class="nikud-dot" data-key="nikud_shva_nach" style="background:#ff88aa"></div> <!-- Shva Nach -->
+          <div class="nikud-dot" data-key="nikud_05B4" style="background:#ff9900"></div> <!-- Hiriq     -->
+          <div class="nikud-dot" data-key="nikud_05B5" style="background:#cccc00"></div> <!-- Tsere     -->
+          <div class="nikud-dot" data-key="nikud_05B6" style="background:#00cc00"></div> <!-- Segol     -->
+          <div class="nikud-dot" data-key="nikud_05B7" style="background:#6aa84f"></div> <!-- Patach    -->
+          <div class="nikud-dot" data-key="nikud_05B8" style="background:#6fa8dc"></div> <!-- Kamatz    -->
+          <div class="nikud-dot" data-key="nikud_05B9" style="background:#0000ff"></div> <!-- Holam     -->
+          <div class="nikud-dot" data-key="nikud_05BB" style="background:#9900ff"></div> <!-- Kubutz    -->
+          <div class="nikud-dot" data-key="nikud_05BC" style="background:#ff00ff"></div> <!-- Dagesh    -->
         </div>
         <span class="nikud-hint">Customize</span>
         <span id="nikudChevron">▼</span>
@@ -671,20 +742,13 @@
           <span class="tbtn-sub">Upload → get print-ready PDF</span>
         </span>
       </button>
-      <button class="teacher-btn" id="openGdocsBtn">
-        <span class="tbtn-icon">📝</span>
-        <span class="tbtn-text">
-          <span class="tbtn-title">Apply to Google Doc</span>
-          <span class="tbtn-sub">Colors survive printing</span>
-        </span>
-      </button>
     </div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════════════════
        FOOTER
   ══════════════════════════════════════════════════════════════════════ -->
-  <div class="footer">v1.2.0 &nbsp;·&nbsp; Developed by Mayer Prager &nbsp;·&nbsp; KoHack 2026</div>
+  <div class="footer">v2.0.0 &nbsp;·&nbsp; Developed by Mayer Prager &nbsp;·&nbsp; KoHack 2026</div>
 
   <script src="popup.js"></script>
 </body>
