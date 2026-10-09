@@ -232,13 +232,95 @@
     }
     .nikud-row:last-child { border-bottom: none; }
     .nikud-swatch {
-      width: 10px; height: 10px;
-      border-radius: 3px;
+      width: 16px; height: 16px;
+      padding: 0;
+      border-radius: 4px;
       flex-shrink: 0;
-      border: 1px solid rgba(0,0,0,0.08);
+      border: 1px solid rgba(0,0,0,0.15);
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s;
     }
+    .nikud-swatch:hover { transform: scale(1.15); box-shadow: 0 0 0 3px rgba(41,171,226,0.25); }
+    .nikud-swatch:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+
+    /* Colour picker popup (opens when a swatch is clicked) */
+    .cp-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(13,35,64,0.45);
+      z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    .cp-overlay.open { display: flex; }
+    .cp-card {
+      width: 260px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(13,35,64,0.35);
+      padding: 14px;
+    }
+    .cp-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+    .cp-preview {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; direction: rtl; border: 1px solid var(--border);
+    }
+    .cp-title { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); }
+    .cp-close {
+      border: none; background: none; cursor: pointer;
+      font-size: 14px; color: var(--muted); padding: 2px 6px; border-radius: 6px;
+    }
+    .cp-close:hover { color: var(--ink); background: var(--mist); }
+    .cp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
+    .cp-chip {
+      aspect-ratio: 1; border-radius: 7px; cursor: pointer; padding: 0;
+      border: 1px solid rgba(0,0,0,0.12);
+      transition: transform 0.1s;
+    }
+    .cp-chip:hover { transform: scale(1.12); }
+    .cp-chip.selected { outline: 2px solid var(--ink); outline-offset: 1px; }
+    .cp-hexrow { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+    .cp-hexrow label { font-size: 10px; font-weight: 500; color: var(--muted); }
+    .cp-hex {
+      flex: 1; min-width: 0;
+      font-family: 'Rubik', monospace; font-size: 12px; text-transform: uppercase;
+      padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px;
+      color: var(--ink); background: var(--mist); outline: none;
+    }
+    .cp-hex:focus { border-color: var(--sky); }
+    .cp-hex.invalid { border-color: var(--red); }
+    .cp-actions { display: flex; gap: 6px; margin-top: 12px; }
+    .cp-btn {
+      flex: 1; font-family: 'Rubik', sans-serif; font-size: 10.5px; font-weight: 600;
+      padding: 8px 0; border-radius: 7px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--mist); color: var(--ink);
+      transition: background 0.15s;
+    }
+    .cp-btn:hover { background: var(--border); }
+    .cp-btn.primary { background: var(--sky); border-color: var(--sky); color: #fff; }
+    .cp-btn.primary:hover { opacity: 0.88; background: var(--sky); }
+    .cp-btn.reset { border-color: var(--red); color: var(--red); background: transparent; }
+    .cp-btn.reset:hover { background: rgba(229,115,115,0.1); }
+    .cp-resetall {
+      display: block; width: 100%; margin-top: 9px; border: none; background: none;
+      font-family: 'Rubik', sans-serif; font-size: 10px; color: var(--muted);
+      cursor: pointer; text-decoration: underline;
+    }
+    .cp-resetall:hover { color: var(--ink); }
     .nikud-char  { font-size: 16px; width: 28px; text-align: center; direction: rtl; line-height: 1.4; }
     .nikud-label { flex: 1; font-size: 11px; color: var(--ink); }
+
+    /* Highlight style (Block / Niqqud only) */
+    .mode-row { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    .mode-toggle { display: flex; background: var(--border); border-radius: 9px; padding: 2px; gap: 2px; }
+    .mode-btn {
+      flex: 1; font-family: 'Rubik', sans-serif; font-size: 10px; font-weight: 500;
+      padding: 6px 0; border-radius: 7px; border: none; background: transparent;
+      color: var(--muted); cursor: pointer; text-align: center;
+      transition: background 0.18s, color 0.18s;
+    }
+    .mode-btn.active { background: var(--card); color: var(--sky); box-shadow: 0 1px 3px rgba(0,0,0,0.10); }
 
     /* Opacity sub-row */
     .opacity-row {
@@ -449,7 +531,7 @@
       <div class="setting-sub">Overlay Hebrew letters with dyslexia-friendly font</div>
     </label>
     <label class="switch">
-      <input type="checkbox" id="pdfFontToggle">
+      <input type="checkbox" id="pdfFontToggle" checked>
       <span class="track"></span>
     </label>
   </div>
@@ -459,7 +541,7 @@
     <div class="setting-row-icon si-space">↔</div>
     <div class="setting-body">
       <div class="setting-title">Letter Spacing</div>
-      <div class="setting-sub">Extra space between Hebrew letters — requires Dyslexia Font to be on</div>
+      <div class="setting-sub">Extra space between Hebrew letters — works with or without the font</div>
       <div class="slider-wrap">
         <input type="range" id="pdfSpacingRange" min="0" max="10" value="0" step="1">
         <span class="slider-val" id="pdfSpacingVal">0 px</span>
@@ -475,12 +557,18 @@
 
   <!-- Expandable niqqud panel (open by default so the per-niqqud controls are visible) -->
   <div class="nikud-panel open" id="nikudPanel">
+    <div class="mode-row">
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="modeBlock">Block</button>
+        <button type="button" class="mode-btn" id="modeNikud">Niqqud only</button>
+      </div>
+    </div>
     <div class="opacity-row">
       <div class="opacity-row-top">
         <span>Highlight Opacity</span>
-        <span id="pdfOpacityVal">55%</span>
+        <span id="pdfOpacityVal">100%</span>
       </div>
-      <input type="range" id="pdfOpacityRange" min="10" max="100" value="55" step="5">
+      <input type="range" id="pdfOpacityRange" min="10" max="100" value="100" step="5">
     </div>
     <div class="nikud-bulk">
       <button class="bulk-btn on" id="bulkOn">All On</button>
@@ -530,7 +618,7 @@
   </div>
 
   <div class="result-card" id="resultCard">
-    <div class="result-title">✓ Done! Your PDF is ready.</div>
+    <div class="result-title">✓ Your PDF is ready.</div>
     <div class="result-sub" id="resultSub">—</div>
   </div>
 
@@ -549,7 +637,7 @@
   The original layout, images, and formatting are preserved.
   <strong>Color Niqqud</strong> adds colored highlight boxes behind Hebrew vowel marks.
   <strong>Dyslexia Font</strong> overlays each Hebrew letter with the Dyslex-Kriyah typeface.
-  <strong>Letter Spacing</strong> repositions characters for easier reading.
+  <strong>Letter Spacing</strong> repositions every character for easier reading (original or dyslexia font).
 </div>
 
 <div class="save-toast" id="saveToast">✓ Settings saved to extension</div>
