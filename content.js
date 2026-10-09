@@ -47,12 +47,13 @@
   // 2. SETTINGS STATE
   // ---------------------------------------------------------------------------
   let settings = {
-    colorNekudot:     true,
+    colorNekudot:     false,
     fontEnabled:      true,
     letterSpacing:    0,
-    focusMode:        false,
+    focusMode:        true,
     highlightMode:    'block',
     highlightOpacity: 100,
+    nikudColors:      {},   // user overrides: { nikud_05B4: '#rrggbb', ... }
   };
 
   // ---------------------------------------------------------------------------
@@ -77,7 +78,10 @@
     if (!settings.colorNekudot) { NIKUD_SET = new Set(); return; }
 
     Object.entries(ALL_NIKUD).forEach(([key, meta]) => {
-      if (settings[meta.key] !== false) ACTIVE_VOWEL_HIGHLIGHTS[key] = meta.color;
+      if (settings[meta.key] !== false) {
+        const custom = settings.nikudColors && settings.nikudColors[meta.key];
+        ACTIVE_VOWEL_HIGHLIGHTS[key] = (typeof custom === 'string' && /^#[0-9a-f]{6}$/i.test(custom)) ? custom : meta.color;
+      }
     });
     Object.entries(HATAF_MAP).forEach(([hataf, base]) => {
       if (ACTIVE_VOWEL_HIGHLIGHTS[base] !== undefined)
@@ -104,24 +108,14 @@
 
     const fontFace = `@font-face { font-family: 'DyslexiaHebrew'; src: url('${fontUrl}') format('opentype'); unicode-range: U+05D0-05EA, U+05B0-05BD, U+05BF, U+05C1-05C2, U+05C4-05C5, U+05C7, U+FB1D-FB4E; }`;
 
-    const nikudOnlyRule = settings.colorNekudot && settings.highlightMode === 'nikud' ? `
-      .otiyot-letter-block[data-nikud] { color: transparent !important; position: relative; }
-      .otiyot-letter-block[data-nikud]::before { content: attr(data-letter); position: absolute; left: 0; top: 0; color: var(--otiyot-text-color, inherit); pointer-events: none; white-space: pre; }
-      .otiyot-letter-block[data-nikud]::after  { content: attr(data-nikud);  position: absolute; left: 0; top: 0; color: var(--otiyot-nikud-color); pointer-events: none; white-space: pre; }
-    ` : '';
-
-    if (settings.colorNekudot && settings.highlightMode === 'nikud') {
-      const bodyColor = window.getComputedStyle(document.body).color || '#000000';
-      document.documentElement.style.setProperty('--otiyot-text-color', bodyColor);
-    }
-
     styleEl.textContent = fontFace + `
       .otiyot-letter-block {
         display: inline; line-height: inherit;
         ${settings.fontEnabled ? "font-family: 'DyslexiaHebrew', sans-serif !important;" : ""}
         ${settings.letterSpacing > 0 ? `letter-spacing: ${settings.letterSpacing.toFixed(1)}px !important;` : ""}
       }
-      ${nikudOnlyRule}
+      .otiyot-word { display: inline-block; white-space: nowrap; }
+      ${settings.letterSpacing > 0 ? `.otiyot-space { display: inline-block; width: ${(0.35 + settings.letterSpacing * 0.55).toFixed(2)}em; }` : ''}
       #otiyot-focus-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; z-index: 2147483647; transition: opacity 0.3s; opacity: 0; will-change: clip-path; }
       #otiyot-focus-overlay.active { opacity: 1; }
       ${settings.focusMode ? `
@@ -170,27 +164,82 @@
     return 'SHVA_NACH';
   }
 
-  function processTextNodes(root) {
-    const active = settings.colorNekudot || settings.fontEnabled || settings.letterSpacing > 0;
-    if (!active) return;
-
-    // Quick bail: if this subtree has no Hebrew at all, skip it entirely
-    if (root.textContent && !/[\u05D0-\u05EA]/.test(root.textContent)) return;
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-    const targets = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      const el = node.parentElement;
-      if (!el) continue;
-      if (el.classList.contains('otiyot-letter-block')) continue;
-      if (isInsideInteractive(el)) continue;
-      targets.push(node);
+  // Niqqud-only mode: keep letter + marks in the SAME text flow so the font's
+  // own mark positioning (GPOS) places them; just colour the mark characters.
+  function fillNikudOnly(span, slice, rgba) {
+    span.appendChild(document.createTextNode(slice[0]));
+    for (const ch of slice.slice(1)) {
+      if (ALL_NIKUD_SET.has(ch)) {
+        const m = document.createElement('span');
+        m.className = 'otiyot-nk';
+        m.style.color = rgba;
+        m.textContent = ch;
+        span.appendChild(m);
+      } else {
+        span.appendChild(document.createTextNode(ch));
+      }
     }
+  }
 
-    targets.forEach(textNode => {
-      const text = textNode.nodeValue;
-      if (!/[\u05D0-\u05EA]/.test(text)) return;
+  const HEB_RE = /[\u05D0-\u05EA\uFB1D-\uFB4E]/;
+  const ROLE_RE = /^(textbox|spinbutton|combobox|listbox|grid|treegrid|slider)$/i;
+
+  // One pass; whole skipped subtrees (code, inputs, editors, svg...) are rejected at their
+  // root instead of walking up the ancestor chain for every single text node.
+  function collectTargets(root) {
+    const targets = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        if (n.nodeType === 1) {
+          if (SKIP_TAGS.has(n.tagName.toUpperCase())) return NodeFilter.FILTER_REJECT;
+          if (n.classList.contains('otiyot-letter-block') || n.classList.contains('otiyot-word')) return NodeFilter.FILTER_REJECT;
+          if (n.hasAttribute('contenteditable') && n.isContentEditable) return NodeFilter.FILTER_REJECT;
+          if (n.hasAttribute('role') && ROLE_RE.test(n.getAttribute('role'))) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_SKIP;
+        }
+        return HEB_RE.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    let node;
+    while ((node = walker.nextNode())) targets.push(node);
+    return targets;
+  }
+
+  // Work in ~10 ms slices so the page stays responsive and the first screenful appears at once.
+  // A newer rebuild bumps _gen, which silently cancels any slices still queued.
+  let _gen = 0;
+  function runBatched(items, fn, gen, done) {
+    let idx = 0;
+    const step = () => {
+      if (gen !== _gen) return;
+      observer.disconnect();                       // never observe our own DOM writes
+      const t0 = performance.now();
+      while (idx < items.length && performance.now() - t0 < 10) {
+        try { fn(items[idx]); } catch (e) { /* one bad node must not stop the rest */ }
+        idx++;
+      }
+      if (!siteDisabled) observeBody();
+      if (idx < items.length) setTimeout(step, 0);
+      else if (done) done();
+    };
+    step();
+  }
+
+  function processTextNodes(root, done) {
+    const active = settings.colorNekudot || settings.fontEnabled || settings.letterSpacing > 0;
+    if (!active || siteDisabled) { if (done) done(); return; }
+    if (root.nodeType === 1 && isInsideInteractive(root)) { if (done) done(); return; }
+
+    const gen = _gen;
+    const targets = collectTargets(root);
+
+    const processOne = (textNode) => {
+      const rawText = textNode.nodeValue;
+      if (!/[\u05D0-\u05EA\uFB1D-\uFB4E]/.test(rawText)) return;
+      // Some sources store shin/sin (and dagesh forms, vav+holam, etc.) as single precomposed
+      // presentation-form characters (U+FB2A etc.). Split them into base letter + marks so they
+      // are wrapped, colored and given the font like every other letter.
+      const text = rawText.replace(/[\uFB1D-\uFB4E]/g, c => c.normalize('NFD'));
       if (!textNode.parentNode || !document.contains(textNode.parentNode)) return;
 
       const fragment = document.createDocumentFragment();
@@ -208,13 +257,21 @@
             const ch = text[i], cp = ch.charCodeAt(0);
             if (!isHebrewLetter(cp)) break;
 
-            let diacritics = '', rawNikud = null, j = i + 1;
+            let diacritics = '', rawNikud = null, dageshSeen = false, j = i + 1;
             while (j < text.length) {
               const nc = text.charCodeAt(j);
               if (ALL_NIKUD_SET.has(text[j]) || isCantillation(nc) || isLetterModifier(nc)) {
-                if (ALL_NIKUD_SET.has(text[j]) && rawNikud === null) rawNikud = text[j];
+                if (text[j] === '\u05BC') {
+                  dageshSeen = true;                 // hold dagesh aside — a real vowel always wins
+                } else if (ALL_NIKUD_SET.has(text[j]) && rawNikud === null) {
+                  rawNikud = text[j];
+                }
                 diacritics += text[j]; j++;
               } else break;
+            }
+            // No vowel present: vav + dagesh is shuruk (→ Kubutz); any other letter + dagesh stays dagesh
+            if (rawNikud === null && dageshSeen) {
+              rawNikud = (cp === 0x05D5) ? '\u05BB' : '\u05BC';
             }
 
             let colourKey = null;
@@ -234,22 +291,24 @@
           if (settings.letterSpacing > 0 && wordLetters.length > 1) {
             // Wrap word in inline-block nowrap so it never breaks mid-word
             const wordWrap = document.createElement('span');
+            wordWrap.className = 'otiyot-word';
             wordWrap.style.cssText = 'display:inline-block;white-space:nowrap;';
             wordLetters.forEach(({ slice, colourKey }, idx) => {
               const span = document.createElement('span');
               span.className = 'otiyot-letter-block';
               const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
+              let filled = false;
               if (settings.colorNekudot && color) {
                 const rgba = hexToRgba(color, settings.highlightOpacity);
+                span.setAttribute('data-otiyot-hex', color);
                 if (settings.highlightMode === 'nikud') {
-                  span.setAttribute('data-letter', slice[0]);
-                  span.setAttribute('data-nikud', slice.slice(1));
-                  span.style.setProperty('--otiyot-nikud-color', rgba);
+                  fillNikudOnly(span, slice, rgba);
+                  filled = true;
                 } else {
                   span.style.backgroundColor = rgba;
                 }
               }
-              span.textContent = slice;
+              if (!filled) span.textContent = slice;
               wordWrap.appendChild(span);
               if (idx < wordLetters.length - 1) {
                 wordWrap.appendChild(document.createTextNode('\u200B'));
@@ -262,17 +321,18 @@
               const span = document.createElement('span');
               span.className = 'otiyot-letter-block';
               const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
+              let filled = false;
               if (settings.colorNekudot && color) {
                 const rgba = hexToRgba(color, settings.highlightOpacity);
+                span.setAttribute('data-otiyot-hex', color);
                 if (settings.highlightMode === 'nikud') {
-                  span.setAttribute('data-letter', slice[0]);
-                  span.setAttribute('data-nikud', slice.slice(1));
-                  span.style.setProperty('--otiyot-nikud-color', rgba);
+                  fillNikudOnly(span, slice, rgba);
+                  filled = true;
                 } else {
                   span.style.backgroundColor = rgba;
                 }
               }
-              span.textContent = slice;
+              if (!filled) span.textContent = slice;
               fragment.appendChild(span);
             });
           }
@@ -281,9 +341,8 @@
           // For spaces between Hebrew words, inject extra visual gap when letter spacing is on
           if (settings.letterSpacing > 0 && (charCode === 0x20 || charCode === 0xA0)) {
             const spaceSpan = document.createElement('span');
-            spaceSpan.className = 'otiyot-letter-block';
-            spaceSpan.style.display = 'inline-block';
-            spaceSpan.style.width = `${0.35 + settings.letterSpacing * 0.55}em`;
+            spaceSpan.className = 'otiyot-letter-block otiyot-space';
+            spaceSpan.setAttribute('data-otiyot-orig', char);   // so strip restores the real space
             spaceSpan.textContent = '\u00A0';
             fragment.appendChild(spaceSpan);
           } else {
@@ -293,7 +352,9 @@
         }
       }
       if (textNode.parentNode) textNode.parentNode.replaceChild(fragment, textNode);
-    });
+    };
+
+    runBatched(targets, processOne, gen, done);
   }
 
   // ---------------------------------------------------------------------------
@@ -385,73 +446,143 @@
   // 8. INITIALIZATION
   // ---------------------------------------------------------------------------
 
+  // Removes everything we added and restores the ORIGINAL text exactly:
+  // word wrappers (and their zero-width spaces), and spaces we widened.
   function stripOtiyotSpans() {
-    document.querySelectorAll('.otiyot-letter-block').forEach(span => {
-      const parent = span.parentNode;
-      if (parent) parent.replaceChild(document.createTextNode(span.textContent), span);
+    const parents = new Set();
+    document.querySelectorAll('.otiyot-word').forEach(w => {
+      const p = w.parentNode; if (!p) return;
+      p.replaceChild(document.createTextNode(w.textContent.replace(/\u200B/g, '')), w);
+      parents.add(p);
     });
-    document.normalize();
+    document.querySelectorAll('.otiyot-letter-block').forEach(span => {
+      const p = span.parentNode; if (!p) return;
+      const orig = span.getAttribute('data-otiyot-orig');
+      p.replaceChild(document.createTextNode(orig !== null ? orig : span.textContent), span);
+      parents.add(p);
+    });
+    parents.forEach(p => { try { p.normalize(); } catch (e) {} });   // only the touched parents
   }
 
-  let _applyTimer = null;
-  function scheduleApply() {
-    clearTimeout(_applyTimer);
-    _applyTimer = setTimeout(applyAll, 80);
+  let siteDisabled = false;
+  let builtKey = null, lastFocus = null, _applyTimer = null;
+
+  // Only things that change the DOM structure force a rebuild. Font, letter-spacing amount,
+  // focus mode and opacity are CSS / in-place updates and are instant.
+  function structKey() {
+    const toggles = Object.values(ALL_NIKUD).map(m => settings[m.key] !== false ? 1 : 0).join('');
+    const needSpans = settings.colorNekudot || settings.fontEnabled || settings.letterSpacing > 0;
+    return [settings.colorNekudot ? 1 : 0, settings.highlightMode, toggles,
+            JSON.stringify(settings.nikudColors || {}), settings.letterSpacing > 0 ? 1 : 0, needSpans ? 1 : 0].join('|');
   }
 
-  function applyAll() {
-    rebuildActiveNikud();
-    applyVisualSettings();
+  function restyleOpacity() {
+    document.querySelectorAll('[data-otiyot-hex]').forEach(span => {
+      const rgba = hexToRgba(span.getAttribute('data-otiyot-hex'), settings.highlightOpacity);
+      if (settings.highlightMode === 'nikud') span.querySelectorAll('.otiyot-nk').forEach(m => { m.style.color = rgba; });
+      else span.style.backgroundColor = rgba;
+    });
+  }
+
+  function fullRebuild() {
+    _gen++;
     observer.disconnect();
     stripOtiyotSpans();
     processTextNodes(document.body);
-    initFocusMode();
-    observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  function refresh() {
+    if (siteDisabled) return;
+    rebuildActiveNikud();
+    applyVisualSettings();
+    const key = structKey();
+    if (key !== builtKey) { builtKey = key; fullRebuild(); }
+    else restyleOpacity();
+    if (lastFocus !== settings.focusMode) { lastFocus = settings.focusMode; initFocusMode(); }
+  }
+
+  function scheduleApply() {
+    clearTimeout(_applyTimer);
+    _applyTimer = setTimeout(refresh, 16);
+  }
+
+  function applyAll() { builtKey = null; lastFocus = null; refresh(); }
+
+  // Ignores no-op updates (the popup sends the same values again after its debounced save).
+  function applySettings(upd) {
+    let changed = false;
+    for (const k in upd) {
+      if (JSON.stringify(settings[k]) !== JSON.stringify(upd[k])) { settings[k] = upd[k]; changed = true; }
+    }
+    if (changed) scheduleApply();
+  }
+
+  function setSiteDisabled(flag) {
+    if (flag === siteDisabled) return;
+    siteDisabled = flag;
+    if (flag) {
+      _gen++;
+      observer.disconnect();
+      stripOtiyotSpans();
+      teardownFocusMode();
+      const styleEl = document.getElementById('otiyot-plus-style');
+      if (styleEl) styleEl.remove();
+      builtKey = null; lastFocus = null;
+    } else {
+      applyAll();
+    }
+  }
+
+  function observeBody() {
+    if (document.body) observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+
+  const _pending = new Set();
   let _observerTimer = null;
+  const isOurs = n => n.classList && (n.classList.contains('otiyot-letter-block') || n.classList.contains('otiyot-word'));
   const observer = new MutationObserver((mutations) => {
-    const added = [];
-    mutations.forEach(m => m.addedNodes.forEach(n => {
-      if (n.nodeType === Node.ELEMENT_NODE && !n.classList?.contains('otiyot-letter-block'))
-        added.push(n);
-    }));
-    if (added.length === 0) return;
+    for (const m of mutations) {
+      if (m.type === 'characterData') {            // page rewrote a text node in place (SPAs, live regions)
+        const el = m.target.parentElement;
+        if (el && !el.closest('.otiyot-letter-block')) _pending.add(el);
+        continue;
+      }
+      m.addedNodes.forEach(n => {
+        if (n.nodeType === 1 && !isOurs(n)) _pending.add(n);
+        else if (n.nodeType === 3 && n.parentElement && !n.parentElement.closest('.otiyot-letter-block')) _pending.add(n.parentElement);
+      });
+    }
+    if (_pending.size === 0) return;
     clearTimeout(_observerTimer);
     _observerTimer = setTimeout(() => {
-      observer.disconnect();
-      added.forEach(el => processTextNodes(el));
-      observer.observe(document.body, { childList: true, subtree: true });
-    }, 150);
+      const list = [..._pending]; _pending.clear();
+      list.filter(el => el.isConnected).forEach(el => processTextNodes(el));
+    }, 100);
   });
 
   try {
     chrome.runtime.onMessage.addListener((msg) => {
-      if (msg.type === 'OTIYOT_SETTINGS') {
-        Object.assign(settings, msg.settings);
-        scheduleApply();
+      if (msg.type === 'OTIYOT_SETTINGS')    applySettings(msg.settings);
+      if (msg.type === 'OTIYOT_SITE_TOGGLE') setSiteDisabled(!!msg.disabled);
+    });
+
+    // Other tabs / iframes pick changes up live — no refresh needed.
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'sync') return;
+      const upd = {};
+      for (const k in changes) {
+        if (k === 'disabledSites') setSiteDisabled((changes[k].newValue || []).includes(CURRENT_HOST));
+        else if ('newValue' in changes[k]) upd[k] = changes[k].newValue;
       }
-      if (msg.type === 'OTIYOT_SITE_TOGGLE') {
-        if (msg.disabled) {
-          // Tear everything down immediately
-          observer.disconnect();
-          stripOtiyotSpans();
-          teardownFocusMode();
-          const styleEl = document.getElementById('otiyot-plus-style');
-          if (styleEl) styleEl.remove();
-        } else {
-          // Re-enable
-          applyAll();
-        }
-      }
+      if (Object.keys(upd).length) applySettings(upd);
     });
 
     const nikudDefaults = {};
     Object.values(ALL_NIKUD).forEach(({ key }) => { nikudDefaults[key] = true; });
 
     chrome.storage.sync.get({ ...settings, ...nikudDefaults, disabledSites: [] }, (res) => {
-      // If this site is disabled, do nothing
-      if (res.disabledSites && res.disabledSites.includes(CURRENT_HOST)) return;
+      siteDisabled = !!(res.disabledSites && res.disabledSites.includes(CURRENT_HOST));
+      if (siteDisabled) return;
       Object.assign(settings, res);
       applyAll();
     });
