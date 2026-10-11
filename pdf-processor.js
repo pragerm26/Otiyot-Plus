@@ -1,4 +1,4 @@
-// pdf-processor.js — Otiyot+ PDF colorizer v1.8.2
+// pdf-processor.js — Otiyot+ PDF colorizer v1.9.0
 // ES module — loaded via <script type="module"> in pdf-processor.html
 
 import * as pdfjsLib from './lib/pdf.min.mjs';
@@ -576,6 +576,7 @@ async function processPdf(file) {
   const spacing = settings.letterSpacing > 0 ? settings.letterSpacing : 0;   // works with or without the font
 
   const renderLetters = [];
+  const lineGroups = [];   // spacing 0: the cells of each line, for the 1.1× stretch
   const pageWordStreams = [];
 
   for (let pi = 0; pi < pageData.length; pi++) {
@@ -670,14 +671,14 @@ async function processPdf(file) {
         const nkList = letterNikudMap.get(ltr) || [];
         // Mirrors content.js: a real vowel always wins over dagesh; vav + dagesh
         // with no vowel is shuruk (Kubutz colour); other letter + dagesh = Dagesh.
-        const realVowel = nkList.find(nk => nk.cp >= 0x05B0 && nk.cp <= 0x05BB && nk.cp !== 0x05BA);
+        const realVowel = nkList.find(nk => nk.cp >= 0x05B0 && nk.cp <= 0x05BB);
         const hasDagesh = nkList.some(nk => nk.cp === 0x05BC);
-        let rawNikud = realVowel ? realVowel.char : null;
+        let rawNikud = realVowel ? (realVowel.cp === 0x05BA ? '\u05B9' : realVowel.char) : null;
         if (rawNikud === null && hasDagesh) rawNikud = (ltr.char === '\u05D5') ? '\u05BB' : '\u05BC';
 
         // Where the mark physically sits (for "niqqud only" mode)
         let markClass = null;
-        if (realVowel) markClass = (realVowel.cp === 0x05B9) ? 'above' : 'below';
+        if (realVowel) markClass = (realVowel.cp === 0x05B9 || realVowel.cp === 0x05BA) ? 'above' : 'below';
         else if (hasDagesh) markClass = 'inside';
         classOf.set(ltr, markClass);
 
@@ -713,7 +714,9 @@ async function processPdf(file) {
       });
 
       if (spacing === 0) {
-        for (const ltr of letters) renderLetters.push(mkCell(ltr));
+        const group = [];
+        for (const ltr of letters) { const c = mkCell(ltr); renderLetters.push(c); group.push(c); }
+        lineGroups.push({ pi, cells: group });
       } else {
         // Reflow: every visible glyph on the line (letters AND punctuation / maqaf /
         // sof-pasuq) becomes a cell, so nothing is left behind in its old position.
@@ -783,23 +786,10 @@ async function processPdf(file) {
     return ok;
   }
 
-  let uniformScale = 1;
-  if (dyslexiaFont && spacing === 0) {
-    // Compare TOTAL widths. The old code shrank everything to fit the single widest
-    // glyph (origW is an equal-split estimate, so wide letters always look "too wide"),
-    // which made the whole document's letters small.
-    let sumOrig = 0, sumNat = 0;
-    for (const ltr of renderLetters) {
-      if (!ltr.origW || ltr.origW <= 0) continue;
-      const bc = baseChar(ltr.char);
-      if (!fontSupportsChar(bc)) continue;
-      try {
-        sumNat  += dyslexiaFont.widthOfTextAtSize(bc, ltr.fontSize);
-        sumOrig += ltr.origW;
-      } catch { /* ignore */ }
-    }
-    if (sumOrig > 0 && sumNat > 0) uniformScale = Math.max(0.85, Math.min(1, sumOrig / sumNat));
-  }
+  // Letters are drawn at the PDF's own font size (same as the spacing > 0 path, which looked right).
+  // The old "uniformScale" shrink estimated widths from an equal split of each text run, which
+  // always made the dyslexia-font letters come out too small at 0 spacing.
+  const uniformScale = 1;
 
   setProgress(65, 'Drawing…', 4);
 
@@ -827,6 +817,37 @@ async function processPdf(file) {
   const allCells = [...renderLetters, ...pageWordStreams.flat(2)];
   let needClone = false;
   for (const c of allCells) { c._mode = chooseMode(c); if (c._mode === 'clone') needClone = true; }
+
+  // ┌─────────────────────────────────────────────────────────────────────────────┐
+  // │ PDF-EDITOR-ONLY ADJUSTMENT — IGNORE WHEN MATCHING RULES WITH content.js.     │
+  // │ This 1.15× letter-pitch stretch compensates for pdf-lib redrawing glyphs at  │
+  // │ fixed positions inside the original PDF's letter slots. content.js lets the  │
+  // │ browser lay text out natively, so it has no equivalent and must NOT get one. │
+  // │ It only runs when the Dyslex-Kriyah font is on AND letter spacing is 0.      │
+  // └─────────────────────────────────────────────────────────────────────────────┘
+  // At 0 spacing the dyslexia font's letters are a bit wider than the originals, so they crowd
+  // or touch. Open every line up by 15% (letter pitch ×1.15), pivoting on the line's right edge
+  // (Hebrew starts there) and never past the page's left text margin. Only the redraw position
+  // moves — the white-out still uses the original coordinates.
+  const LETTER_PITCH_STRETCH = 1.15;
+  if (dyslexiaFont && spacing === 0) {
+    const edge = g => ({ L: Math.min(...g.cells.map(c => c.x)), R: Math.max(...g.cells.map(c => c.x + c.origW)) });
+    for (let pi = 0; pi < pages.length; pi++) {
+      const groups = lineGroups.filter(g => g.pi === pi && g.cells.length);
+      if (!groups.length) continue;
+      const edges   = groups.map(edge);
+      const maxW    = Math.max(...edges.map(e => e.R - e.L));
+      const pageLeft = Math.min(...edges.filter(e => e.R - e.L >= 0.6 * maxW).map(e => e.L));
+      groups.forEach((g, gi) => {
+        const { L, R } = edges[gi];
+        const span = R - L;
+        if (span <= 0) return;
+        const sc = Math.min(LETTER_PITCH_STRETCH, (R - pageLeft) / span);   // full-width lines can't grow past the margin
+        if (sc <= 1.0001) return;
+        for (const c of g.cells) c.x = (R - (R - (c.x + c.origW)) * sc) - c.origW;
+      });
+    }
+  }
 
   // One transparent high-resolution render of each source page (taken BEFORE anything is
   // erased). Stamping cell-sized slices of a single image is cheap for every PDF viewer;
@@ -899,31 +920,119 @@ async function processPdf(file) {
     inside: { y0:  0.10, y1:  0.42 },
   };
 
-  function paintHighlight(targetPage, ltr, x, y, w, fs) {
+  function paintHighlight(targetPage, ltr, x, y, w, fs, cx, geo) {
+    if (cx == null) cx = x + w / 2;   // visual centre of the letter
     const { r, g, b } = hexToRgb(ltr.color);
     if (settings.highlightMode === 'nikud' && ltr.markClass) {
-      // "Niqqud only": tint just the band where the mark is drawn. 'Screen' turns black
-      // ink into the colour and leaves white paper white, so the letter stays black.
-      const band = NIKUD_BANDS[ltr.markClass];
-      const bw   = Math.max(w + fs * 0.16, fs * 0.45);
-      const bx   = x + w / 2 - bw / 2;
-      const opts = { x: bx, y: y + band.y0 * fs, width: bw, height: (band.y1 - band.y0) * fs,
-                     color: rgb(r, g, b), opacity: (settings.highlightOpacity || 100) / 100 };
-      try { targetPage.drawRectangle({ ...opts, blendMode: 'Screen' }); highlightCount++; }
-      catch { /* skip */ }
-      // Vav with holam / shuruk: tint the vav body too (same Screen blend, so only ink changes)
-      if (ltr.colorLetter) {
-        try {
-          targetPage.drawRectangle({ x, y: y - 0.02 * fs, width: Math.max(w, 3), height: 0.66 * fs,
-                                     color: rgb(r, g, b), opacity: (settings.highlightOpacity || 100) / 100,
-                                     blendMode: 'Screen' });
-        } catch { /* skip */ }
+      // "Niqqud only": 'Screen' turns black ink into the colour and leaves white paper white,
+      // so only ink that sits under a rectangle changes.
+      const op = (settings.highlightOpacity || 100) / 100;
+      const tint = (bx, by, bw, bh) => {
+        try { targetPage.drawRectangle({ x: bx, y: by, width: bw, height: bh, color: rgb(r, g, b), opacity: op, blendMode: 'Screen' }); }
+        catch { /* skip */ }
+      };
+      const shurukOrHolamVav = ltr.colorLetter;     // vav + holam, or vav + dagesh (shuruk): vav AND mark share one colour
+
+      if (geo) {
+        // Exact outlines. The vav body is tinted once; the dagesh of a shuruk lies inside it,
+        // so it gets no second layer (two Screen layers on top of each other turn magenta).
+        if (shurukOrHolamVav) tint(geo.body.x, geo.body.y, geo.body.w, geo.body.h);
+        if (!(shurukOrHolamVav && ltr.markClass === 'inside')) {
+          const pad = fs * 0.04;
+          for (const bx of geo.boxes) tint(bx.x - pad, bx.y - pad, bx.w + pad * 2, bx.h + pad * 2);
+        }
+        highlightCount++;
+        return;
       }
+
+      // No glyph geometry (clone mode / fallback): band estimate
+      if (shurukOrHolamVav) tint(cx - Math.max(w, 3) / 2, y - 0.02 * fs, Math.max(w, 3), 0.62 * fs);
+      if (!(shurukOrHolamVav && ltr.markClass === 'inside')) {
+        const band = NIKUD_BANDS[ltr.markClass];
+        const bw   = Math.max(w + fs * 0.16, fs * 0.45);
+        tint(cx - bw / 2, y + band.y0 * fs, bw, (band.y1 - band.y0) * fs);
+      }
+      highlightCount++;
       return;
     }
     const opts = { x, y: y - fs * 0.12, width: w, height: fs * 1.10, color: rgb(r, g, b), opacity };
     try { targetPage.drawRectangle({ ...opts, blendMode: 'Multiply' }); highlightCount++; }
     catch { try { targetPage.drawRectangle(opts); highlightCount++; } catch { /* skip */ } }
+  }
+
+  // ── Mark placement helpers (fontkit) ───────────────────────────────────────
+  // Outline box of one glyph at a given size, relative to its own origin (null if unavailable).
+  function glyphBox(ch, size) {
+    try {
+      const fk = dyslexiaFont && dyslexiaFont.embedder && dyslexiaFont.embedder.font;
+      if (!fk) return null;
+      const bb = fk.glyphForCodePoint(ch.codePointAt(0)).bbox;
+      if (!bb || ![bb.minX, bb.maxX, bb.minY, bb.maxY].every(isFinite) || bb.maxX <= bb.minX) return null;
+      const k = size / fk.unitsPerEm;
+      return { x0: bb.minX * k, x1: bb.maxX * k, y0: bb.minY * k, y1: bb.maxY * k };
+    } catch { return null; }
+  }
+  function glyphCenter(ch, size) {
+    const b = glyphBox(ch, size);
+    return b ? (b.x0 + b.x1) / 2 : null;
+  }
+
+  // Draw base letter and marks as separate glyphs, so nothing depends on how the font
+  // shapes the cluster (pdf-lib drops GPOS anyway, and substitutions made clusters unreliable).
+  //  • vowel points + dagesh (U+05B0–05BC): centred horizontally on the base letter's outline;
+  //    vertical = the font's own offset if it has one, else the outline as-is, snapped into the
+  //    expected band for that kind of mark if it landed somewhere silly.
+  //  • other marks (shin/sin dots, meteg, rafe…): the font's own offset via fontkit layout.
+  // Each mark also reports its outline box so "niqqud only" can tint exactly the mark.
+  const markLogged = new Set();
+  function placeMarks(bc, marks, size) {
+    try {
+      const fk = dyslexiaFont && dyslexiaFont.embedder && dyslexiaFont.embedder.font;
+      if (!fk || typeof fk.layout !== 'function') return null;
+      const k    = size / fk.unitsPerEm;
+      const base = glyphBox(bc, size);
+      if (!base) return null;
+      const baseCenter = (base.x0 + base.x1) / 2;
+
+      const out = [];
+      for (const m of marks) {
+        const gb = glyphBox(m.char, size);
+        if (!gb) return null;                       // can't place it reliably → caller falls back
+        const isVowel = m.cp >= 0x05B0 && m.cp <= 0x05BC;
+        let dx = 0, dy = 0;
+
+        try {                                        // the font's own offset for this mark on this base
+          const run = fk.layout(bc + m.char);
+          if (run.glyphs.length === 2) {
+            const pos = run.positions[1];
+            if (!isVowel) dx = (run.positions[0].xAdvance + pos.xOffset) * k;
+            dy = pos.yOffset * k;
+          }
+        } catch { /* keep zeros */ }
+
+        if (isVowel) {
+          dx = baseCenter - (gb.x0 + gb.x1) / 2;
+          // Vertical sanity check, applied whether or not the font supplied an offset:
+          // wherever the mark ends up, its outline must sit in the zone for its kind.
+          // "Below" marks (hiriq, patach, kamatz, segol, tsere, shva…) must clear the baseline,
+          // otherwise they overlap the letter instead of hanging under it.
+          const cls  = (m.cp === 0x05B9 || m.cp === 0x05BA) ? 'above' : (m.cp === 0x05BC ? 'inside' : 'below');
+          const band = NIKUD_BANDS[cls];
+          const mid  = ((gb.y0 + gb.y1) / 2 + dy) / size;          // outline centre in font-size units
+          const lo   = band.y0 - 0.08;
+          const hi   = cls === 'below' ? band.y1 - 0.02 : band.y1 + 0.08;
+          const snap = mid < lo || mid > hi;
+          if (!markLogged.has(m.cp)) {                               // one line per mark type, for debugging
+            markLogged.add(m.cp);
+            console.info('[Otiyot] mark U+' + m.cp.toString(16).toUpperCase().padStart(4, '0'), cls,
+              { outlineMid: +((gb.y0 + gb.y1) / 2 / size).toFixed(3), layoutDy: +(dy / size).toFixed(3), finalMid: +mid.toFixed(3), snapped: snap });
+          }
+          if (snap) dy += ((band.y0 + band.y1) / 2 - mid) * size;
+        }
+        out.push({ char: m.char, dx, dy, box: { x0: gb.x0 + dx, x1: gb.x1 + dx, y0: gb.y0 + dy, y1: gb.y1 + dy } });
+      }
+      return { baseCenter, base, marks: out };
+    } catch (e) { console.warn('placeMarks failed', e); return null; }
   }
 
   function drawLetter(targetPage, ltr, x, y, fontSizeForDraw, cellWidth) {
@@ -935,26 +1044,60 @@ async function processPdf(file) {
       if (ltr._mode !== 'font') fontUnsupported++;
     }
 
+    let cx = x + w / 2, geo = null, directColor = false;
     if (ltr._mode === 'font') {
       const drawSize = fontSizeForDraw * uniformScale;
       const naturalW = (() => { try { return dyslexiaFont.widthOfTextAtSize(bc, drawSize); } catch { return w; } })();
       const xOffset  = (w - naturalW) / 2;
+      const baseX    = x + xOffset;
 
-      // Combine base character and diacritics into a single grapheme cluster for OpenType mark positioning
-      const validMarks = (ltr.marks && ltr.marks.length)
-        ? ltr.marks.filter(mk => fontSupportsChar(mk.char)).map(mk => mk.char).join('')
-        : '';
-      try {
-        targetPage.drawText(bc + validMarks, { x: x + xOffset, y, size: drawSize, font: dyslexiaFont, color: rgb(0, 0, 0) });
-      } catch {
-        try { targetPage.drawText(bc, { x: x + xOffset, y, size: drawSize, font: dyslexiaFont, color: rgb(0,0,0) }); }
-        catch { /* skip */ }
+      const validMarks = (ltr.marks && ltr.marks.length) ? ltr.marks.filter(mk => fontSupportsChar(mk.char)) : [];
+      const placed = validMarks.length ? placeMarks(bc, validMarks, drawSize) : null;
+
+      if (placed) {
+        // Base letter alone, then every mark on its own, centred over the letter.
+        // (pdf-lib ignores the font's GPOS mark positioning, so bc + marks in one string
+        // leaves the marks sitting at the pen position, not over the middle of the letter.)
+        cx  = baseX + placed.baseCenter;
+        geo = {
+          body:  { x: baseX + placed.base.x0, y: y + placed.base.y0, w: placed.base.x1 - placed.base.x0, h: placed.base.y1 - placed.base.y0 },
+          boxes: placed.marks.map(m => ({ x: baseX + m.box.x0, y: y + m.box.y0, w: m.box.x1 - m.box.x0, h: m.box.y1 - m.box.y0 })),
+        };
+        // "Niqqud only": we draw the glyphs ourselves, so colour the marks directly instead of
+        // laying a tinted rectangle over them (a rectangle also tints any neighbouring letter ink,
+        // which on thin letters like vav/yod showed up as a coloured block across the letter).
+        // Vav + holam / shuruk: the vav itself takes the colour too. Opacity is mixed toward white.
+        directColor = !!(settings.highlightMode === 'nikud' && ltr.markClass && ltr.color);
+        let markRgb = rgb(0, 0, 0), baseRgb = rgb(0, 0, 0);
+        if (directColor) {
+          const { r, g, b } = hexToRgb(ltr.color);
+          const op  = (settings.highlightOpacity || 100) / 100;
+          const mix = v => v * op + (1 - op);
+          markRgb = rgb(mix(r), mix(g), mix(b));
+          if (ltr.colorLetter) baseRgb = markRgb;
+        }
+        try { targetPage.drawText(bc, { x: baseX, y, size: drawSize, font: dyslexiaFont, color: baseRgb }); } catch { /* skip */ }
+        for (const m of placed.marks) {
+          try { targetPage.drawText(m.char, { x: baseX + m.dx, y: y + m.dy, size: drawSize, font: dyslexiaFont, color: markRgb }); }
+          catch { /* skip */ }
+        }
+        if (directColor) highlightCount++;
+      } else {
+        const text = bc + validMarks.map(mk => mk.char).join('');
+        try {
+          targetPage.drawText(text, { x: baseX, y, size: drawSize, font: dyslexiaFont, color: rgb(0, 0, 0) });
+        } catch {
+          try { targetPage.drawText(bc, { x: baseX, y, size: drawSize, font: dyslexiaFont, color: rgb(0,0,0) }); }
+          catch { /* skip */ }
+        }
+        const gc = glyphCenter(bc, drawSize);
+        if (gc !== null) cx = baseX + gc;
       }
     } else if (ltr._mode === 'clone') {
       drawClone(targetPage, ltr, x, y);
     }
 
-    if (ltr.color) paintHighlight(targetPage, ltr, x, y, w, fontSizeForDraw);
+    if (ltr.color && !directColor) paintHighlight(targetPage, ltr, x, y, w, fontSizeForDraw, cx, geo);
   }
 
   // PHASE 1: Whiteout pass
