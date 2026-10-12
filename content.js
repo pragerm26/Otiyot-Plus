@@ -47,10 +47,10 @@
   // 2. SETTINGS STATE
   // ---------------------------------------------------------------------------
   let settings = {
-    colorNekudot:     false,
+    colorNekudot:     true,
     fontEnabled:      true,
     letterSpacing:    0,
-    focusMode:        true,
+    focusMode:        false,
     highlightMode:    'block',
     highlightOpacity: 100,
     nikudColors:      {},   // user overrides: { nikud_05B4: '#rrggbb', ... }
@@ -115,6 +115,12 @@
         ${settings.letterSpacing > 0 ? `letter-spacing: ${settings.letterSpacing.toFixed(1)}px !important;` : ""}
       }
       .otiyot-word { display: inline-block; white-space: nowrap; }
+      .otiyot-wov { display: inline; direction: rtl; unicode-bidi: bidi-override; }
+      .otiyot-ob { display: inline-grid; justify-items: start; text-indent: 0; text-align: start; white-space: nowrap; }
+      .otiyot-ob > .otiyot-nk, .otiyot-ob > .otiyot-top { grid-area: 1 / 1; }
+      .otiyot-letter-block > .otiyot-nk, .otiyot-letter-block > .otiyot-top { font-size: inherit !important; line-height: inherit !important; font-weight: inherit !important; font-style: inherit !important; letter-spacing: inherit !important; ${settings.fontEnabled ? "font-family: 'DyslexiaHebrew', sans-serif !important;" : "font-family: inherit !important;"} }
+      .otiyot-top { pointer-events: none; -webkit-user-select: none; user-select: none; }
+      .otiyot-ob, .otiyot-letter-block > .otiyot-nk, .otiyot-letter-block > .otiyot-top { font-synthesis: none !important; text-shadow: none !important; text-align: start !important; text-justify: none !important; text-indent: 0 !important; }
       ${settings.letterSpacing > 0 ? `.otiyot-space { display: inline-block; width: ${(0.35 + settings.letterSpacing * 0.55).toFixed(2)}em; }` : ''}
       #otiyot-focus-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; z-index: 2147483647; transition: opacity 0.3s; opacity: 0; will-change: clip-path; }
       #otiyot-focus-overlay.active { opacity: 1; }
@@ -149,6 +155,19 @@
   // ---------------------------------------------------------------------------
   // 6. PROCESSING LOGIC
   // ---------------------------------------------------------------------------
+  // True when the letter at letterPos follows a bare yod (no vowel) that itself follows a hiriq.
+  function isAfterHiriqMale(text, letterPos) {
+    let k = letterPos - 1;
+    while (k >= 0 && !isHebrewLetter(text.charCodeAt(k))) k--;
+    if (k < 0 || text.charCodeAt(k) !== 0x05D9) return false;
+    const between = text.slice(k + 1, letterPos);
+    if (/[\u05B0-\u05BB]/.test(between)) return false;           // yod carries its own vowel
+    let m = k - 1;
+    while (m >= 0 && !isHebrewLetter(text.charCodeAt(m))) m--;
+    if (m < 0) return false;
+    return text.slice(m + 1, k).includes('\u05B4');
+  }
+
   function classifyShva(text, letterPos, diacritics, prevDominantNikud) {
     let wordInitial = true;
     for (let k = letterPos - 1; k >= 0; k--) {
@@ -159,26 +178,66 @@
     if (wordInitial) return 'SHVA_NA';
     const afterLen = letterPos + 1 + diacritics.length;
     if (afterLen >= text.length) return 'SHVA_NACH';
-    if (prevDominantNikud && new Set(['\u05B5','\u05B4','\u05B9','\u05BB','\u05B8']).has(prevDominantNikud)) return 'SHVA_NA';
+    // Shva after a LONG vowel (tsere / holam / kamatz) is na. Hiriq and kubutz are short,
+    // so a shva after them is nach, unless it is hiriq male (hiriq + bare yod) -> long.
+    if (prevDominantNikud && new Set(['\u05B5','\u05B9','\u05B8']).has(prevDominantNikud)) return 'SHVA_NA';
+    if (isAfterHiriqMale(text, letterPos)) return 'SHVA_NA';
     if (diacritics.includes('\u05BC')) return 'SHVA_NA';
     return 'SHVA_NACH';
   }
 
-  // Niqqud-only mode: keep letter + marks in the SAME text flow so the font's
-  // own mark positioning (GPOS) places them; just colour the mark characters.
-  function fillNikudOnly(span, slice, rgba) {
-    span.appendChild(document.createTextNode(slice[0]));
-    for (const ch of slice.slice(1)) {
-      if (ALL_NIKUD_SET.has(ch)) {
-        const m = document.createElement('span');
-        m.className = 'otiyot-nk';
-        m.style.color = rgba;
-        m.textContent = ch;
-        span.appendChild(m);
-      } else {
-        span.appendChild(document.createTextNode(ch));
-      }
+  // Vav carrying a holam (וֹ) or a shuruk (וּ = vav + dagesh, no vowel) should have the
+  // vav itself coloured along with the niqqud. A vav with dagesh AND a vowel is a
+  // dagesh chazak, not a shuruk, so it is left alone.
+  function isColoredVav(slice, colourKey) {
+    if ((slice[0] === '\u05D9' || slice[0] === '\u05D6') && colourKey === '\u05BC') return true;   // yod/zayin + dagesh only
+    if (slice[0] !== '\u05D5') return false;
+    if (colourKey === '\u05B9') return true;                       // holam
+    return colourKey === '\u05BB' && slice.includes('\u05BC') &&   // shuruk (mapped to Kubutz key)
+           !/[\u05B0-\u05BB]/.test(slice);
+  }
+
+  // Niqqud-only mode. Chrome paints a combining mark in its base letter's colour, so marks
+  // cannot be coloured on their own by wrapping them (or by ::highlight ranges). Instead:
+  //   .otiyot-ob            inline-block box for the letter
+  //     .otiyot-nk          the FULL letter+marks text (one unsplit text node) in the niqqud colour
+  //     .otiyot-top         the letter WITHOUT the coloured marks, same font/position, drawn on top
+  //                         in the normal text colour -> only the marks keep the niqqud colour.
+  // Both layers are shaped by the same font, so mark positions are identical in any font.
+  // A vav with holam / shuruk skips the overlay: the whole vav is coloured.
+  // Any letter whose two layers do not come out the same size/position (the font or the site's
+  // font swaps glyphs for letter+mark, e.g. some hey / yod forms) cannot be overlaid cleanly:
+  // drop its top layer so the whole letter simply takes the niqqud colour. No fringe, no guessing.
+  const _checks = [];
+  function verifyOverlays() {
+    const list = _checks.splice(0), bad = [];
+    for (const ob of list) {
+      if (!ob.isConnected) continue;
+      const nk = ob.querySelector(':scope > .otiyot-nk'), top = ob.querySelector(':scope > .otiyot-top');
+      if (!nk || !top) continue;
+      const a = nk.getBoundingClientRect(), b = top.getBoundingClientRect();
+      if (Math.abs(a.width - b.width) > 0.6 || Math.abs(a.left - b.left) > 0.6 || Math.abs(a.top - b.top) > 0.6) bad.push([ob, top]);
     }
+    for (const [ob, top] of bad) { top.remove(); ob.classList.remove('otiyot-ob'); }
+  }
+
+  function fillNikudOverlay(span, slice, rgba, colorLetter) {
+    const nk = document.createElement('span');
+    nk.className = 'otiyot-nk';
+    nk.style.color = rgba;
+    nk.textContent = slice;
+    span.appendChild(nk);
+    if (colorLetter) return;
+    let base = slice[0];
+    const keepDagesh = slice[0] === '\u05D9' || slice[0] === '\u05D6';          // yod/zayin+dagesh = one composed glyph
+    for (const ch of slice.slice(1)) if (!ALL_NIKUD_SET.has(ch) || (keepDagesh && ch === '\u05BC')) base += ch;   // keep shin dot, cantillation...
+    span.classList.add('otiyot-ob');
+    _checks.push(span);
+    const top = document.createElement('span');     // real element: no CSS content/attr() needed
+    top.className = 'otiyot-top';
+    top.setAttribute('aria-hidden', 'true');
+    top.textContent = base;
+    span.appendChild(top);
   }
 
   const HEB_RE = /[\u05D0-\u05EA\uFB1D-\uFB4E]/;
@@ -218,6 +277,7 @@
         try { fn(items[idx]); } catch (e) { /* one bad node must not stop the rest */ }
         idx++;
       }
+      verifyOverlays();
       if (!siteDisabled) observeBody();
       if (idx < items.length) setTimeout(step, 0);
       else if (done) done();
@@ -288,11 +348,19 @@
           }
 
           // Build the word — either plain (no spacing) or wrapped in nowrap (with spacing)
-          if (settings.letterSpacing > 0 && wordLetters.length > 1) {
-            // Wrap word in inline-block nowrap so it never breaks mid-word
+          // Niqqud-only letters are inline-blocks, so every word gets a nowrap RTL wrapper:
+          // no mid-word line breaks, and the letters keep their right-to-left order even on LTR pages.
+          const ovMode  = settings.colorNekudot && settings.highlightMode === 'nikud';
+          const useWrap = ovMode || (settings.letterSpacing > 0 && wordLetters.length > 1);
+          if (useWrap) {
             const wordWrap = document.createElement('span');
-            wordWrap.className = 'otiyot-word';
-            wordWrap.style.cssText = 'display:inline-block;white-space:nowrap;';
+            if (ovMode) {
+              wordWrap.className = 'otiyot-word otiyot-wov';
+              wordWrap.style.cssText = 'white-space:nowrap;';
+            } else {
+              wordWrap.className = 'otiyot-word';
+              wordWrap.style.cssText = 'display:inline-block;white-space:nowrap;';
+            }
             wordLetters.forEach(({ slice, colourKey }, idx) => {
               const span = document.createElement('span');
               span.className = 'otiyot-letter-block';
@@ -302,7 +370,7 @@
                 const rgba = hexToRgba(color, settings.highlightOpacity);
                 span.setAttribute('data-otiyot-hex', color);
                 if (settings.highlightMode === 'nikud') {
-                  fillNikudOnly(span, slice, rgba);
+                  fillNikudOverlay(span, slice, rgba, isColoredVav(slice, colourKey));
                   filled = true;
                 } else {
                   span.style.backgroundColor = rgba;
@@ -310,7 +378,7 @@
               }
               if (!filled) span.textContent = slice;
               wordWrap.appendChild(span);
-              if (idx < wordLetters.length - 1) {
+              if (settings.letterSpacing > 0 && idx < wordLetters.length - 1) {
                 wordWrap.appendChild(document.createTextNode('\u200B'));
               }
             });
@@ -326,7 +394,7 @@
                 const rgba = hexToRgba(color, settings.highlightOpacity);
                 span.setAttribute('data-otiyot-hex', color);
                 if (settings.highlightMode === 'nikud') {
-                  fillNikudOnly(span, slice, rgba);
+                  fillNikudOverlay(span, slice, rgba, isColoredVav(slice, colourKey));
                   filled = true;
                 } else {
                   span.style.backgroundColor = rgba;
@@ -448,17 +516,25 @@
 
   // Removes everything we added and restores the ORIGINAL text exactly:
   // word wrappers (and their zero-width spaces), and spaces we widened.
+  // Text of an Otiyot wrapper without the duplicate .otiyot-top overlay letters.
+  function cleanText(el) {
+    if (!el.querySelector('.otiyot-top')) return el.textContent;
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('.otiyot-top').forEach(t => t.remove());
+    return clone.textContent;
+  }
+
   function stripOtiyotSpans() {
     const parents = new Set();
     document.querySelectorAll('.otiyot-word').forEach(w => {
       const p = w.parentNode; if (!p) return;
-      p.replaceChild(document.createTextNode(w.textContent.replace(/\u200B/g, '')), w);
+      p.replaceChild(document.createTextNode(cleanText(w).replace(/\u200B/g, '')), w);
       parents.add(p);
     });
     document.querySelectorAll('.otiyot-letter-block').forEach(span => {
       const p = span.parentNode; if (!p) return;
       const orig = span.getAttribute('data-otiyot-orig');
-      p.replaceChild(document.createTextNode(orig !== null ? orig : span.textContent), span);
+      p.replaceChild(document.createTextNode(orig !== null ? orig : cleanText(span)), span);
       parents.add(p);
     });
     parents.forEach(p => { try { p.normalize(); } catch (e) {} });   // only the touched parents
