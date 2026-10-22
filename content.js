@@ -117,10 +117,10 @@
       .otiyot-word { display: inline-block; white-space: nowrap; }
       .otiyot-wov { display: inline; direction: rtl; unicode-bidi: bidi-override; }
       .otiyot-ob { display: inline-grid; justify-items: start; text-indent: 0; text-align: start; white-space: nowrap; }
-      .otiyot-ob > .otiyot-nk, .otiyot-ob > .otiyot-top { grid-area: 1 / 1; }
-      .otiyot-letter-block > .otiyot-nk, .otiyot-letter-block > .otiyot-top { font-size: inherit !important; line-height: inherit !important; font-weight: inherit !important; font-style: inherit !important; letter-spacing: inherit !important; ${settings.fontEnabled ? "font-family: 'DyslexiaHebrew', sans-serif !important;" : "font-family: inherit !important;"} }
-      .otiyot-top { pointer-events: none; -webkit-user-select: none; user-select: none; }
-      .otiyot-ob, .otiyot-letter-block > .otiyot-nk, .otiyot-letter-block > .otiyot-top { font-synthesis: none !important; text-shadow: none !important; text-align: start !important; text-justify: none !important; text-indent: 0 !important; }
+      .otiyot-ob > .otiyot-nk, .otiyot-ob > .otiyot-dg, .otiyot-ob > .otiyot-top { grid-area: 1 / 1; }
+      .otiyot-letter-block > .otiyot-nk, .otiyot-letter-block > .otiyot-dg, .otiyot-letter-block > .otiyot-top { font-size: inherit !important; line-height: inherit !important; font-weight: inherit !important; font-style: inherit !important; letter-spacing: inherit !important; ${settings.fontEnabled ? "font-family: 'DyslexiaHebrew', sans-serif !important;" : "font-family: inherit !important;"} }
+      .otiyot-top, .otiyot-dg { pointer-events: none; -webkit-user-select: none; user-select: none; }
+      .otiyot-ob, .otiyot-letter-block > .otiyot-nk, .otiyot-letter-block > .otiyot-dg, .otiyot-letter-block > .otiyot-top { font-synthesis: none !important; text-shadow: none !important; text-align: start !important; text-justify: none !important; text-indent: 0 !important; }
       ${settings.letterSpacing > 0 ? `.otiyot-space { display: inline-block; width: ${(0.35 + settings.letterSpacing * 0.55).toFixed(2)}em; }` : ''}
       #otiyot-focus-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); pointer-events: none; z-index: 2147483647; transition: opacity 0.3s; opacity: 0; will-change: clip-path; }
       #otiyot-focus-overlay.active { opacity: 1; }
@@ -165,25 +165,57 @@
     let m = k - 1;
     while (m >= 0 && !isHebrewLetter(text.charCodeAt(m))) m--;
     if (m < 0) return false;
-    return text.slice(m + 1, k).includes('\u05B4');
+    const seg = text.slice(m + 1, k);
+    return seg.includes('\u05B4') && !/[ \u00A0\u05BE-]/.test(seg);
   }
 
-  function classifyShva(text, letterPos, diacritics, prevDominantNikud) {
+  // ── SHVA NA / NACH ─────────────────────────────────────────────────────────
+  // KEEP THIS FUNCTION BYTE-IDENTICAL in content.js and pdf-processor.js. Each file only builds
+  // the context object differently (text-based vs. glyph-position-based).
+  // Shva NA rules (voiced):  1 word-initial · 2 after a long vowel (tsere / holam / kamatz /
+  // shuruk / hiriq male) · 3 under a letter with dagesh chazak · 4 under the first of two
+  // identical letters · 5 the second of two shvas in mid-word.
+  // Shva NACH (silent): everything else, i.e. after a short vowel, at the end of a word, and BOTH
+  // shvas of a word-final pair.
+  function shvaKind(c) {
+    if (c.wordInitial)   return 'SHVA_NA';      // 1
+    if (c.wordFinal)     return 'SHVA_NACH';    // word-final shva is silent, even after a long vowel
+    if (c.nextFinalShva) return 'SHVA_NACH';    // word-final pair of shvas: both silent
+    if (c.hasDagesh)     return 'SHVA_NA';      // 3
+    if (c.nextSameLetter) return 'SHVA_NA';     // 4
+    if (c.prevWasShva)   return 'SHVA_NA';      // 5
+    if (c.prevLong)      return 'SHVA_NA';      // 2
+    return 'SHVA_NACH';
+  }
+
+  const LONG_VOWELS = new Set(['\u05B5', '\u05B8', '\u05B9']);   // tsere, kamatz, holam (+ shuruk, tracked separately)
+
+  // Builds the shvaKind() context for the letter at letterPos by looking at the text around it.
+  function shvaContext(text, letterPos, diacritics, prev) {
     let wordInitial = true;
     for (let k = letterPos - 1; k >= 0; k--) {
       const c = text.charCodeAt(k);
       if (isHebrewLetter(c)) { wordInitial = false; break; }
       if (c === 0x20 || c === 0x05BE || c === 0x2D) break;
     }
-    if (wordInitial) return 'SHVA_NA';
-    const afterLen = letterPos + 1 + diacritics.length;
-    if (afterLen >= text.length) return 'SHVA_NACH';
-    // Shva after a LONG vowel (tsere / holam / kamatz) is na. Hiriq and kubutz are short,
-    // so a shva after them is nach, unless it is hiriq male (hiriq + bare yod) -> long.
-    if (prevDominantNikud && new Set(['\u05B5','\u05B9','\u05B8']).has(prevDominantNikud)) return 'SHVA_NA';
-    if (isAfterHiriqMale(text, letterPos)) return 'SHVA_NA';
-    if (diacritics.includes('\u05BC')) return 'SHVA_NA';
-    return 'SHVA_NACH';
+    const after = letterPos + 1 + diacritics.length;
+    const nextIsLetter = after < text.length && isHebrewLetter(text.charCodeAt(after));
+    let nextSameLetter = false, nextFinalShva = false;
+    if (nextIsLetter) {
+      nextSameLetter = text[after] === text[letterPos];
+      let q = after + 1, nd = '';
+      while (q < text.length) {
+        const nc = text.charCodeAt(q);
+        if (ALL_NIKUD_SET.has(text[q]) || isCantillation(nc) || isLetterModifier(nc)) { nd += text[q]; q++; } else break;
+      }
+      nextFinalShva = nd.includes(SHVA_CHAR) && !(q < text.length && isHebrewLetter(text.charCodeAt(q)));
+    }
+    return {
+      wordInitial, wordFinal: !nextIsLetter, nextFinalShva, nextSameLetter,
+      hasDagesh: diacritics.includes('\u05BC'),
+      prevWasShva: prev.wasShva,
+      prevLong: prev.isLong || isAfterHiriqMale(text, letterPos),
+    };
   }
 
   // Vav carrying a holam (וֹ) or a shuruk (וּ = vav + dagesh, no vowel) should have the
@@ -214,17 +246,24 @@
     for (const ob of list) {
       if (!ob.isConnected) continue;
       const nk = ob.querySelector(':scope > .otiyot-nk'), top = ob.querySelector(':scope > .otiyot-top');
+      const dg = ob.querySelector(':scope > .otiyot-dg');
       if (!nk || !top) continue;
       const a = nk.getBoundingClientRect(), b = top.getBoundingClientRect();
-      if (Math.abs(a.width - b.width) > 0.6 || Math.abs(a.left - b.left) > 0.6 || Math.abs(a.top - b.top) > 0.6) bad.push([ob, top]);
+      const off = r => Math.abs(r.width - b.width) > 0.6 || Math.abs(r.left - b.left) > 0.6 || Math.abs(r.top - b.top) > 0.6;
+      if (off(a)) bad.push([ob, top, dg]);
+      else if (dg && off(dg.getBoundingClientRect())) dg.remove();   // dagesh layer misaligned: dagesh just keeps the vowel colour
     }
-    for (const [ob, top] of bad) { top.remove(); ob.classList.remove('otiyot-ob'); }
+    for (const [ob, top, dg] of bad) { top.remove(); if (dg) dg.remove(); ob.classList.remove('otiyot-ob'); }
   }
 
-  function fillNikudOverlay(span, slice, rgba, colorLetter) {
+  // Vowel + dagesh (dagesh chazak, or a vowel under a begadkefat dagesh): the vowel owns the main
+  // colour, the dagesh gets its own. A third layer .otiyot-dg (letter + dagesh only, in the dagesh
+  // colour) sits between .otiyot-nk and .otiyot-top, so the dagesh is repainted over the vowel colour.
+  // dgRgba === null -> no dagesh layer.  rgba === null -> the vowel is NOT coloured (toggle off).
+  function fillNikudOverlay(span, slice, rgba, colorLetter, dgRgba) {
     const nk = document.createElement('span');
     nk.className = 'otiyot-nk';
-    nk.style.color = rgba;
+    nk.style.color = rgba || 'inherit';
     nk.textContent = slice;
     span.appendChild(nk);
     if (colorLetter) return;
@@ -233,11 +272,44 @@
     for (const ch of slice.slice(1)) if (!ALL_NIKUD_SET.has(ch) || (keepDagesh && ch === '\u05BC')) base += ch;   // keep shin dot, cantillation...
     span.classList.add('otiyot-ob');
     _checks.push(span);
+    if (dgRgba) {
+      let dgText = slice[0];
+      for (const ch of slice.slice(1)) if (ch === '\u05BC' || ch === '\u05C1' || ch === '\u05C2') dgText += ch;   // letter + dagesh (+ shin/sin dot) only
+      const dg = document.createElement('span');
+      dg.className = 'otiyot-dg';
+      dg.setAttribute('aria-hidden', 'true');
+      dg.style.color = dgRgba;
+      dg.textContent = dgText;
+      span.appendChild(dg);
+    }
     const top = document.createElement('span');     // real element: no CSS content/attr() needed
     top.className = 'otiyot-top';
     top.setAttribute('aria-hidden', 'true');
     top.textContent = base;
     span.appendChild(top);
+  }
+
+  // Applies the colour(s) for one letter. Returns true when it built the niqqud-only overlay
+  // (the caller must NOT set textContent in that case).
+  function paintLetter(span, slice, colourKey) {
+    if (!settings.colorNekudot) return false;
+    const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
+    if (settings.highlightMode !== 'nikud') {              // block mode: one background per letter, the vowel wins
+      if (!color) return false;
+      span.setAttribute('data-otiyot-hex', color);
+      span.style.backgroundColor = hexToRgba(color, settings.highlightOpacity);
+      return false;
+    }
+    const colorLetter = !!color && isColoredVav(slice, colourKey);
+    const dgHex = (!colorLetter && /[\u05B0-\u05BB]/.test(slice) && slice.includes('\u05BC') &&
+                   slice[0] !== '\u05D9' && slice[0] !== '\u05D6')        // yod/zayin: dagesh is baked into the glyph
+                  ? ACTIVE_VOWEL_HIGHLIGHTS['\u05BC'] : null;
+    if (!color && !dgHex) return false;
+    const op = settings.highlightOpacity;
+    if (color) span.setAttribute('data-otiyot-hex', color);
+    if (dgHex) span.setAttribute('data-otiyot-dg-hex', dgHex);
+    fillNikudOverlay(span, slice, color ? hexToRgba(color, op) : null, colorLetter, dgHex ? hexToRgba(dgHex, op) : null);
+    return true;
   }
 
   const HEB_RE = /[\u05D0-\u05EA\uFB1D-\uFB4E]/;
@@ -303,7 +375,7 @@
       if (!textNode.parentNode || !document.contains(textNode.parentNode)) return;
 
       const fragment = document.createDocumentFragment();
-      let i = 0, prevDominantNikud = null, prevWasShva = false;
+      let i = 0, prevWasShva = false, prevIsLong = false;
 
       while (i < text.length) {
         const char = text[i], charCode = char.charCodeAt(0);
@@ -330,19 +402,21 @@
               } else break;
             }
             // No vowel present: vav + dagesh is shuruk (→ Kubutz); any other letter + dagesh stays dagesh
+            let isShuruk = false;
             if (rawNikud === null && dageshSeen) {
-              rawNikud = (cp === 0x05D5) ? '\u05BB' : '\u05BC';
+              isShuruk = (cp === 0x05D5);
+              rawNikud = isShuruk ? '\u05BB' : '\u05BC';
             }
 
             let colourKey = null;
             if (rawNikud === SHVA_CHAR) {
-              colourKey = classifyShva(text, i, diacritics, prevDominantNikud);
+              colourKey = shvaKind(shvaContext(text, i, diacritics, { wasShva: prevWasShva, isLong: prevIsLong }));
             } else if (rawNikud) {
               colourKey = rawNikud;
             }
 
             prevWasShva = (rawNikud === SHVA_CHAR);
-            prevDominantNikud = rawNikud;
+            prevIsLong  = LONG_VOWELS.has(rawNikud) || isShuruk;      // shuruk is long; kubutz is not
             wordLetters.push({ slice: ch + diacritics, colourKey });
             i = j;
           }
@@ -364,18 +438,7 @@
             wordLetters.forEach(({ slice, colourKey }, idx) => {
               const span = document.createElement('span');
               span.className = 'otiyot-letter-block';
-              const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
-              let filled = false;
-              if (settings.colorNekudot && color) {
-                const rgba = hexToRgba(color, settings.highlightOpacity);
-                span.setAttribute('data-otiyot-hex', color);
-                if (settings.highlightMode === 'nikud') {
-                  fillNikudOverlay(span, slice, rgba, isColoredVav(slice, colourKey));
-                  filled = true;
-                } else {
-                  span.style.backgroundColor = rgba;
-                }
-              }
+              const filled = paintLetter(span, slice, colourKey);
               if (!filled) span.textContent = slice;
               wordWrap.appendChild(span);
               if (settings.letterSpacing > 0 && idx < wordLetters.length - 1) {
@@ -388,18 +451,7 @@
             wordLetters.forEach(({ slice, colourKey }) => {
               const span = document.createElement('span');
               span.className = 'otiyot-letter-block';
-              const color = colourKey ? ACTIVE_VOWEL_HIGHLIGHTS[colourKey] : null;
-              let filled = false;
-              if (settings.colorNekudot && color) {
-                const rgba = hexToRgba(color, settings.highlightOpacity);
-                span.setAttribute('data-otiyot-hex', color);
-                if (settings.highlightMode === 'nikud') {
-                  fillNikudOverlay(span, slice, rgba, isColoredVav(slice, colourKey));
-                  filled = true;
-                } else {
-                  span.style.backgroundColor = rgba;
-                }
-              }
+              const filled = paintLetter(span, slice, colourKey);
               if (!filled) span.textContent = slice;
               fragment.appendChild(span);
             });
@@ -518,9 +570,9 @@
   // word wrappers (and their zero-width spaces), and spaces we widened.
   // Text of an Otiyot wrapper without the duplicate .otiyot-top overlay letters.
   function cleanText(el) {
-    if (!el.querySelector('.otiyot-top')) return el.textContent;
+    if (!el.querySelector('.otiyot-top, .otiyot-dg')) return el.textContent;
     const clone = el.cloneNode(true);
-    clone.querySelectorAll('.otiyot-top').forEach(t => t.remove());
+    clone.querySelectorAll('.otiyot-top, .otiyot-dg').forEach(t => t.remove());
     return clone.textContent;
   }
 
@@ -553,10 +605,12 @@
   }
 
   function restyleOpacity() {
-    document.querySelectorAll('[data-otiyot-hex]').forEach(span => {
-      const rgba = hexToRgba(span.getAttribute('data-otiyot-hex'), settings.highlightOpacity);
-      if (settings.highlightMode === 'nikud') span.querySelectorAll('.otiyot-nk').forEach(m => { m.style.color = rgba; });
-      else span.style.backgroundColor = rgba;
+    document.querySelectorAll('[data-otiyot-hex],[data-otiyot-dg-hex]').forEach(span => {
+      const hex = span.getAttribute('data-otiyot-hex'), dgHex = span.getAttribute('data-otiyot-dg-hex');
+      if (settings.highlightMode === 'nikud') {
+        if (hex)   span.querySelectorAll('.otiyot-nk').forEach(m => { m.style.color = hexToRgba(hex, settings.highlightOpacity); });
+        if (dgHex) span.querySelectorAll('.otiyot-dg').forEach(m => { m.style.color = hexToRgba(dgHex, settings.highlightOpacity); });
+      } else if (hex) span.style.backgroundColor = hexToRgba(hex, settings.highlightOpacity);
     });
   }
 
