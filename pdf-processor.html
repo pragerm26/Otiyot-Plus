@@ -426,6 +426,8 @@
     .btn:not(:disabled):hover { opacity: 0.88; }
     .btn:not(:disabled):active { transform: scale(0.98); }
     .btn-primary  { background: var(--sky);   color: #fff; width: 100%; justify-content: center; margin-top: 16px; }
+    .btn-cancel   { background: var(--red);   color: #fff; width: 100%; justify-content: center; margin-top: 10px; display: none; }
+    .btn-cancel.visible { display: inline-flex; }
     .btn-download { background: var(--green); color: #fff; width: 100%; justify-content: center; margin-top: 12px; display: none; }
     .btn-download.visible { display: inline-flex; }
     .btn-save {
@@ -626,6 +628,9 @@
 
   <button class="btn btn-primary" id="processBtn" disabled>
     🎨 Colorize &amp; Download PDF
+  </button>
+  <button class="btn btn-cancel" id="cancelBtn">
+    ✕ Cancel
   </button>
   <button class="btn btn-download" id="downloadBtn">
     ⬇️ Download PDF
